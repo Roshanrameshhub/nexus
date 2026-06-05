@@ -80,9 +80,9 @@ async def _create_google_meet_event(
         "end":   {"dateTime": end_iso,   "timeZone": user_time_zone},
         "conferenceData": {
             "createRequest": {
-                # uuid4() guarantees a globally-unique requestId —
+                # uuid4().hex guarantees a globally-unique requestId —
                 # required by Google to actually create a new Meet room.
-                "requestId": str(uuid.uuid4()),
+                "requestId": uuid.uuid4().hex,
                 "conferenceSolutionKey": {"type": "hangoutsMeet"},
             }
         },
@@ -107,14 +107,12 @@ async def _create_google_meet_event(
 
     # ── Primary extraction path: conferenceData.entryPoints[0].uri ──────────
     # This is the correct, documented response field for hangoutsMeet links.
-    try:
-        meet_url = (
-            data["conferenceData"]["entryPoints"][0]["uri"]
-        )
-        if meet_url:
-            logger.info(f"[Google Meet] Extracted from entryPoints[0].uri: {meet_url}")
-            return meet_url
-    except (KeyError, IndexError, TypeError):
+    meet_url = data.get("conferenceData", {}).get("entryPoints", [{}])[0].get("uri")
+    
+    if meet_url:
+        logger.info(f"[Google Meet] Extracted from entryPoints[0].uri: {meet_url}")
+        return meet_url
+    else:
         logger.warning("[Google Meet] conferenceData.entryPoints path not present in response.")
 
     # ── Secondary fallback: top-level hangoutLink ─────────────────────────
