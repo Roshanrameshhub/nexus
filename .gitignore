@@ -1,0 +1,97 @@
+# ==============================================================================
+#                      NEXUS FULL-STACK MASTER .GITIGNORE
+# ==============================================================================
+# This file protects your private Google OAuth tokens, environment variables,
+# and system locks from ever being accidentally pushed to GitHub.
+
+# ==========================================
+# 1. CRITICAL SECURITY (Private Vaults)
+# ==========================================
+# Blocks all variations of environment variable configurations
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.backend
+.env.frontend
+
+# Blocks private cryptographic keys and credentials files
+*.pem
+*.key
+credentials.json
+client_secret*.json
+
+# ==========================================
+# 2. SYSTEM & IDE LOCKS
+# ==========================================
+# Prevents git index crashes (Fixes the fatal: index.lock exists error)
+.git/index.lock
+*.lock
+
+# OS metadata files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Common Editor Settings (VS Code, WebStorm, PyCharm)
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# ==========================================
+# 3. FRONTEND DEPLOYMENT & ECOSYSTEM (Next.js)
+# ==========================================
+# Node dependency trees
+node_modules/
+/jspm_packages
+/web_modules
+
+# Next.js specific build outputs
+.next/
+out/
+
+# Static compilation / Production artifacts
+build/
+dist/
+
+# Front-end logs and linting caches
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.eslintcache
+.turbo/
+
+# ==========================================
+# 4. BACKEND RUNTIME & ECOSYSTEM (Python/Node)
+# ==========================================
+# Python bytecode compiled assets
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Isolated Python Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+lib/
+pip-log.txt
+
+# Testing, coverage, and validation tool metrics
+.pytest_cache/
+.tox/
+.coverage
+.cache
+htmlcov/
+.mypy_cache/
+
+# Database migration tracks & local data containers
+*.db
+*.sqlite3
+instance/
