@@ -25,6 +25,20 @@ if (!globalThis.__sessionsStore) {
   globalThis.__sessionsStore = []
 }
 
+function getGoogleRedirectUri(): string {
+  if (process.env.GOOGLE_REDIRECT_URI) {
+    return process.env.GOOGLE_REDIRECT_URI
+  }
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '')
+  if (appUrl) {
+    return `${appUrl}/api/auth/callback/google`
+  }
+  if (process.env.NODE_ENV === 'development') {
+    return 'http://localhost:3000/api/auth/callback/google'
+  }
+  throw new Error('Set GOOGLE_REDIRECT_URI or NEXT_PUBLIC_APP_URL for Google Calendar OAuth')
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json()
@@ -61,7 +75,7 @@ export async function POST(req: Request) {
       const oauth2Client = new google.auth.OAuth2(
         process.env.GOOGLE_CLIENT_ID || 'dummy_client_id',
         process.env.GOOGLE_CLIENT_SECRET || 'dummy_client_secret',
-        process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/api/auth/callback/google'
+        getGoogleRedirectUri()
       );
       
       const refreshToken = process.env.GOOGLE_REFRESH_TOKEN || 'dummy_refresh_token';
@@ -206,7 +220,7 @@ export async function PATCH(req: Request) {
       const oauth2Client = new google.auth.OAuth2(
         process.env.GOOGLE_CLIENT_ID || 'dummy_client_id',
         process.env.GOOGLE_CLIENT_SECRET || 'dummy_client_secret',
-        process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/api/auth/callback/google'
+        getGoogleRedirectUri()
       );
       
       const refreshToken = process.env.GOOGLE_REFRESH_TOKEN || 'dummy_refresh_token';

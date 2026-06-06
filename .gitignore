@@ -80,7 +80,15 @@ venv/
 .venv/
 env/
 ENV/
-lib/
+# venv site-packages only — do NOT use bare lib/ (ignores FRONTEND/lib)
+**/venv/lib/
+**/venv/Lib/
+**/.venv/lib/
+**/.venv/Lib/
+**/env/lib/
+**/env/Lib/
+**/ENV/lib/
+**/ENV/Lib/
 pip-log.txt
 
 # Testing, coverage, and validation tool metrics

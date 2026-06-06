@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     # App
     APP_NAME: str = "Nexus API"
-    DEBUG: bool = True
+    DEBUG: bool = False
     API_PREFIX: str = "/api"
     FRONTEND_URL: str = "http://localhost:3000"
 
