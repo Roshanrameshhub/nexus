@@ -2,12 +2,13 @@
 
 import Link from 'next/link'
 import { useMemo } from 'react'
-import { Check, MessageSquare, Calendar, Globe, Users, FileText, Send, UserPlus } from 'lucide-react'
+import { Check, MessageSquare, Calendar, Globe, Users, FileText, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { useQuery } from '@tanstack/react-query'
 import { AppShell } from '@/components/layout/app-shell'
 import { Button } from '@/components/ui/button'
 import { CardSkeleton } from '@/components/ui/loading-skeleton'
+import { ConnectButton } from '@/components/social/connect-button'
 import { dashboardAPI, notificationsAPI, messagesAPI, meetingsAPI, connectionsAPI } from '@/services/api'
 import { newsAPI } from '@/services/news-api'
 import { useAuthStore } from '@/lib/store'
@@ -127,7 +128,7 @@ export default function DashboardPage() {
   )
 
   return (
-    <AppShell title="Dashboard">
+    <AppShell title="Dashboard" hideSearchAndTheme>
       <div className="max-w-7xl mx-auto space-y-6">
         
         {/* Header Section */}
@@ -223,7 +224,7 @@ export default function DashboardPage() {
             <div className="glass-card p-6">
               <div className="flex items-center justify-between gap-3 mb-6">
                 <div>
-                  <h2 className="text-xl font-semibold text-foreground">AI Recommendations</h2>
+                  <h2 className="text-xl font-semibold text-foreground">Recommendations</h2>
                   <p className="text-sm text-muted-foreground">People you should connect with</p>
                 </div>
                 <Button variant="secondary" size="sm" asChild>
@@ -234,18 +235,18 @@ export default function DashboardPage() {
                 {dashboard?.recommendations?.slice(0, 3).map((recommendation: any) => (
                   <div key={recommendation.id} className="glass-card p-4">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
-                          {getInitials(recommendation.name)}
-                        </div>
-                        <div>
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <Link href={`/users/${recommendation.id}`} className="shrink-0">
+                          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
+                            {getInitials(recommendation.name)}
+                          </div>
+                        </Link>
+                        <Link href={`/users/${recommendation.id}`} className="min-w-0 hover:text-primary transition-colors">
                           <p className="font-semibold text-foreground leading-none">{recommendation.name}</p>
                           <p className="text-xs text-muted-foreground mt-1">{recommendation.role}</p>
-                        </div>
+                        </Link>
                       </div>
-                      <Button size="sm" variant="ghost" className="h-8 w-8 p-0 rounded-full">
-                        <UserPlus className="w-4 h-4" />
-                      </Button>
+                      <ConnectButton userId={String(recommendation.id)} size="sm" />
                     </div>
                   </div>
                 ))}
