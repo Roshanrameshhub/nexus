@@ -4,31 +4,32 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import httpx
-from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.dependencies.auth import CurrentUser
 from app.models.meeting import Meeting
 from app.models.user import User
 from app.models.notification import Notification
-from app.schemas.meeting import MeetingCreate, MeetingAccept, MeetingResponse
+from app.schemas.meeting import (
+    MeetingCreate,
+    MeetingAccept,
+    MeetingReschedule,
+    MeetingNotesUpdate,
+    MeetingResponse,
+)
 from app.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/meetings", tags=["Meetings"])
 
-
-# ─── Google Calendar helpers ───────────────────────────────────────────────────
-
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
-GOOGLE_CALENDAR_EVENTS_URL = (
-    "https://www.googleapis.com/calendar/v3/calendars/primary/events"
-    "?conferenceDataVersion=1"
-)
+GOOGLE_CALENDAR_BASE = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
 
 
 async def _get_google_access_token(
@@ -36,10 +37,6 @@ async def _get_google_access_token(
     client_secret: str,
     refresh_token: str,
 ) -> str:
-    """Exchange a refresh token for a short-lived access token.
-    Raises ValueError with a detailed message on failure so the caller
-    can log it and fall back gracefully.
-    """
     async with httpx.AsyncClient(timeout=10) as http:
         resp = await http.post(
             GOOGLE_TOKEN_URL,
@@ -60,28 +57,31 @@ async def _get_google_access_token(
     return resp.json()["access_token"]
 
 
+def _extract_meet_url(data: dict) -> Optional[str]:
+    meet_url = data.get("conferenceData", {}).get("entryPoints", [{}])[0].get("uri")
+    if meet_url:
+        return meet_url
+    return data.get("hangoutLink")
+
+
 async def _create_google_meet_event(
     access_token: str,
     title: str,
     description: str,
     scheduled_at: datetime,
+    duration_minutes: int,
     user_time_zone: str,
-) -> Optional[str]:
-    """Insert a Calendar event with hangoutsMeet conference data.
-    Returns the hangoutLink string, or None if unavailable.
-    """
+) -> tuple[Optional[str], Optional[str]]:
     start_iso = scheduled_at.isoformat()
-    end_iso = (scheduled_at + timedelta(hours=1)).isoformat()
+    end_iso = (scheduled_at + timedelta(minutes=duration_minutes)).isoformat()
 
     event_body = {
         "summary": title,
         "description": description,
         "start": {"dateTime": start_iso, "timeZone": user_time_zone},
-        "end":   {"dateTime": end_iso,   "timeZone": user_time_zone},
+        "end": {"dateTime": end_iso, "timeZone": user_time_zone},
         "conferenceData": {
             "createRequest": {
-                # uuid4().hex guarantees a globally-unique requestId —
-                # required by Google to actually create a new Meet room.
                 "requestId": uuid.uuid4().hex,
                 "conferenceSolutionKey": {"type": "hangoutsMeet"},
             }
@@ -90,7 +90,7 @@ async def _create_google_meet_event(
 
     async with httpx.AsyncClient(timeout=15) as http:
         resp = await http.post(
-            GOOGLE_CALENDAR_EVENTS_URL,
+            f"{GOOGLE_CALENDAR_BASE}?conferenceDataVersion=1",
             json=event_body,
             headers={
                 "Authorization": f"Bearer {access_token}",
@@ -104,81 +104,196 @@ async def _create_google_meet_event(
         )
 
     data = resp.json()
-
-    # ── Primary extraction path: conferenceData.entryPoints[0].uri ──────────
-    # This is the correct, documented response field for hangoutsMeet links.
-    meet_url = data.get("conferenceData", {}).get("entryPoints", [{}])[0].get("uri")
-    
+    meet_url = _extract_meet_url(data)
+    event_id = data.get("id")
     if meet_url:
-        logger.info(f"[Google Meet] Extracted from entryPoints[0].uri: {meet_url}")
-        return meet_url
+        logger.info(f"[Google Meet] Created event {event_id}: {meet_url}")
     else:
-        logger.warning("[Google Meet] conferenceData.entryPoints path not present in response.")
+        logger.error(f"[Google Meet] No Meet URL in create response: {data}")
+    return meet_url, event_id
 
-    # ── Secondary fallback: top-level hangoutLink ─────────────────────────
-    hang = data.get("hangoutLink")
-    if hang:
-        logger.info(f"[Google Meet] Extracted from hangoutLink: {hang}")
-        return hang
 
-    # Log full response so we can inspect it immediately
-    logger.error(f"[Google Meet] Could not find Meet URL in response. Full payload: {data}")
-    return None
+async def _update_google_calendar_event(
+    access_token: str,
+    event_id: str,
+    title: str,
+    description: str,
+    scheduled_at: datetime,
+    duration_minutes: int,
+    user_time_zone: str,
+) -> Optional[str]:
+    start_iso = scheduled_at.isoformat()
+    end_iso = (scheduled_at + timedelta(minutes=duration_minutes)).isoformat()
+
+    event_body = {
+        "summary": title,
+        "description": description,
+        "start": {"dateTime": start_iso, "timeZone": user_time_zone},
+        "end": {"dateTime": end_iso, "timeZone": user_time_zone},
+    }
+
+    async with httpx.AsyncClient(timeout=15) as http:
+        resp = await http.patch(
+            f"{GOOGLE_CALENDAR_BASE}/{event_id}?conferenceDataVersion=1",
+            json=event_body,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            },
+        )
+
+    if resp.status_code not in (200, 201):
+        raise ValueError(
+            f"Google Calendar events.update failed [{resp.status_code}]: {resp.text}"
+        )
+
+    data = resp.json()
+    return _extract_meet_url(data)
+
+
+async def _delete_google_calendar_event(access_token: str, event_id: str) -> None:
+    async with httpx.AsyncClient(timeout=15) as http:
+        resp = await http.delete(
+            f"{GOOGLE_CALENDAR_BASE}/{event_id}",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+
+    if resp.status_code not in (200, 204, 410):
+        raise ValueError(
+            f"Google Calendar events.delete failed [{resp.status_code}]: {resp.text}"
+        )
+
+
+async def _get_google_credentials() -> Optional[tuple[str, str, str]]:
+    settings = get_settings()
+    client_id = settings.GOOGLE_CLIENT_ID
+    client_secret = settings.GOOGLE_CLIENT_SECRET
+    refresh_token = settings.GOOGLE_REFRESH_TOKEN
+    if not all([client_id, client_secret, refresh_token]):
+        logger.warning("[Google Meet] Credentials not fully configured.")
+        return None
+    return client_id, client_secret, refresh_token
 
 
 async def _provision_meet_link(
     title: str,
     description: str,
     scheduled_at: datetime,
+    duration_minutes: int,
     user_time_zone: str = "UTC",
-) -> str:
-    """Attempt to provision a real Google Meet link.
-    Falls back to a unique placeholder if credentials are absent or if
-    any Google API call fails — so the endpoint never crashes.
-    """
-    settings = get_settings()
-    fallback = f"https://meet.google.com/tmp-{uuid.uuid4().hex[:8]}"
+) -> tuple[str, Optional[str]]:
+    creds = await _get_google_credentials()
+    if not creds:
+        return "", None
 
-    client_id     = settings.GOOGLE_CLIENT_ID
-    client_secret = settings.GOOGLE_CLIENT_SECRET
-    refresh_token = settings.GOOGLE_REFRESH_TOKEN
-
-    if not all([client_id, client_secret, refresh_token]):
-        logger.warning(
-            "[Google Meet] Credentials not fully configured "
-            "(GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN). "
-            "Returning placeholder link."
-        )
-        return fallback
-
+    client_id, client_secret, refresh_token = creds
     try:
         access_token = await _get_google_access_token(
             client_id, client_secret, refresh_token
         )
-        meet_link = await _create_google_meet_event(
+        meet_link, event_id = await _create_google_meet_event(
             access_token=access_token,
             title=title,
             description=description,
             scheduled_at=scheduled_at,
+            duration_minutes=duration_minutes,
             user_time_zone=user_time_zone,
         )
-        if meet_link:
-            logger.info(f"[Google Meet] Provisioned live Meet link: {meet_link}")
-            return meet_link
-        else:
-            logger.warning("[Google Meet] API succeeded but returned no hangoutLink; using fallback.")
-            return fallback
-
-    except ValueError as exc:
-        # Detailed error surfaced to the server terminal for immediate debugging
-        logger.error(f"[Google Meet] API error — {exc}")
-        return fallback
-    except Exception as exc:
-        logger.error(f"[Google Meet] Unexpected error — {exc}", exc_info=True)
-        return fallback
+        return meet_link or "", event_id
+    except (ValueError, Exception) as exc:
+        logger.error(f"[Google Meet] Provision error — {exc}")
+        return "", None
 
 
-# ─── Routes ───────────────────────────────────────────────────────────────────
+async def _update_meet_calendar(
+    event_id: str,
+    title: str,
+    description: str,
+    scheduled_at: datetime,
+    duration_minutes: int,
+    user_time_zone: str,
+) -> Optional[str]:
+    creds = await _get_google_credentials()
+    if not creds:
+        return None
+
+    client_id, client_secret, refresh_token = creds
+    try:
+        access_token = await _get_google_access_token(
+            client_id, client_secret, refresh_token
+        )
+        return await _update_google_calendar_event(
+            access_token=access_token,
+            event_id=event_id,
+            title=title,
+            description=description,
+            scheduled_at=scheduled_at,
+            duration_minutes=duration_minutes,
+            user_time_zone=user_time_zone,
+        )
+    except (ValueError, Exception) as exc:
+        logger.error(f"[Google Meet] Update error — {exc}")
+        return None
+
+
+async def _cancel_meet_calendar(event_id: str) -> None:
+    creds = await _get_google_credentials()
+    if not creds:
+        return
+
+    client_id, client_secret, refresh_token = creds
+    try:
+        access_token = await _get_google_access_token(
+            client_id, client_secret, refresh_token
+        )
+        await _delete_google_calendar_event(access_token, event_id)
+    except (ValueError, Exception) as exc:
+        logger.error(f"[Google Meet] Cancel calendar error — {exc}")
+
+
+async def _create_notification(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    content: str,
+) -> None:
+    notif = Notification(
+        id=uuid.uuid4(),
+        user_id=user_id,
+        type="meeting",
+        content=content,
+        read_status=False,
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(notif)
+
+
+def _meeting_response(meeting: Meeting) -> dict:
+    """Serialize a meeting without triggering async lazy-loads on relationships."""
+    state = sa_inspect(meeting)
+    payload = {
+        "id": meeting.id,
+        "organizer_id": meeting.organizer_id,
+        "invitee_id": meeting.invitee_id,
+        "title": meeting.title,
+        "description": meeting.description,
+        "scheduled_at": meeting.scheduled_at,
+        "meeting_type": meeting.meeting_type,
+        "duration_minutes": meeting.duration_minutes or 60,
+        "meet_link": meeting.meet_link or "",
+        "meeting_provider": meeting.meeting_provider or "google_meet",
+        "calendar_event_id": meeting.calendar_event_id,
+        "notes": meeting.notes,
+        "status": meeting.status,
+        "created_at": meeting.created_at,
+        "organizer": None if "organizer" in state.unloaded else meeting.organizer,
+        "invitee": None if "invitee" in state.unloaded else meeting.invitee,
+    }
+    return {"meeting": MeetingResponse.model_validate(payload)}
+
+
+def _is_participant(meeting: Meeting, user_id: uuid.UUID) -> bool:
+    return meeting.organizer_id == user_id or meeting.invitee_id == user_id
+
 
 @router.post("", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def create_meeting(
@@ -186,22 +301,23 @@ async def create_meeting(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new meeting request (status = 'pending').
-    Attempts to provision a live Google Meet link using the organiser's
-    stored credentials; falls back to a placeholder on any failure.
-    """
-    # Verify invitee exists
     invitee = await db.get(User, body.invitee_id)
     if not invitee:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitee not found")
+    if body.invitee_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot schedule a session with yourself",
+        )
 
     user_time_zone = body.user_time_zone or "UTC"
+    description = body.description or f"Session with {invitee.name}"
 
-    # ── Provision Google Meet link ──────────────────────────────────────────
-    meet_link = await _provision_meet_link(
+    meet_link, calendar_event_id = await _provision_meet_link(
         title=body.title,
-        description=body.description or f"Meeting with {invitee.name}",
+        description=description,
         scheduled_at=body.scheduled_at,
+        duration_minutes=body.duration_minutes,
         user_time_zone=user_time_zone,
     )
 
@@ -213,30 +329,28 @@ async def create_meeting(
         description=body.description,
         scheduled_at=body.scheduled_at,
         meeting_type=body.meeting_type,
+        duration_minutes=body.duration_minutes,
         meet_link=meet_link,
+        meeting_provider="google_meet",
+        calendar_event_id=calendar_event_id,
         status="pending",
         created_at=datetime.now(timezone.utc),
     )
     db.add(meeting)
 
-    # ── Notification for the invitee ────────────────────────────────────────
-    notif = Notification(
-        id=uuid.uuid4(),
-        user_id=body.invitee_id,
-        type="meeting",
-        content=(
-            f"{current_user.name} scheduled a meeting with you: "
-            f"'{body.title}' at {body.scheduled_at.strftime('%Y-%m-%d %H:%M UTC')}. "
-            f"Meet Link: {meet_link}"
+    link_text = f" Meet Link: {meet_link}" if meet_link else ""
+    await _create_notification(
+        db,
+        body.invitee_id,
+        (
+            f"{current_user.name} scheduled a session with you: "
+            f"'{body.title}' at {body.scheduled_at.strftime('%Y-%m-%d %H:%M UTC')}."
+            f"{link_text}"
         ),
-        read_status=False,
-        created_at=datetime.now(timezone.utc),
     )
-    db.add(notif)
 
     await db.flush()
-
-    return {"meeting": MeetingResponse.model_validate(meeting)}
+    return _meeting_response(meeting)
 
 
 @router.patch("/{meeting_id}/accept", response_model=dict)
@@ -246,63 +360,187 @@ async def accept_meeting(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Accept a pending meeting request.
-
-    - Captures the accepting user's local IANA timezone (e.g. 'Asia/Kolkata').
-    - Provisions an authentic Google Meet link via the Calendar API.
-    - Updates status → 'accepted' and persists the real Meet URL.
-    - Returns the updated meeting record.
-    """
     meeting = await db.get(Meeting, meeting_id)
     if not meeting:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
 
-    # Only the invitee may accept
     if meeting.invitee_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the invited participant can accept this meeting",
         )
 
-    if meeting.status == "accepted":
-        # Idempotent — return current state
-        return {"meeting": MeetingResponse.model_validate(meeting)}
+    if meeting.status in ("confirmed", "accepted"):
+        return _meeting_response(meeting)
 
-    user_time_zone = body.user_time_zone or "UTC"
+    if meeting.status == "cancelled":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot accept a cancelled meeting",
+        )
 
-    # ── Provision a live Google Meet link for the accepted session ──────────
-    meet_link = await _provision_meet_link(
-        title=meeting.title,
-        description=meeting.description or f"Meeting with {current_user.name}",
-        scheduled_at=meeting.scheduled_at,
-        user_time_zone=user_time_zone,
-    )
-
-    # ── Persist changes ─────────────────────────────────────────────────────
-    meeting.status    = "accepted"
-    meeting.meet_link = meet_link
+    meeting.status = "confirmed"
     db.add(meeting)
     await db.flush()
 
-    # ── Notify organiser ────────────────────────────────────────────────────
-    try:
-        notif = Notification(
-            id=uuid.uuid4(),
-            user_id=meeting.organizer_id,
-            type="meeting",
-            content=(
-                f"{current_user.name} accepted your meeting request: "
-                f"'{meeting.title}'. Join here: {meet_link}"
-            ),
-            read_status=False,
-            created_at=datetime.now(timezone.utc),
-        )
-        db.add(notif)
-        await db.flush()
-    except Exception as exc:
-        logger.warning(f"[Meetings] Failed to create acceptance notification: {exc}")
+    organizer = await db.get(User, meeting.organizer_id)
+    organizer_name = organizer.name if organizer else "The organizer"
+    link_text = f" Join here: {meeting.meet_link}" if meeting.meet_link else ""
+    await _create_notification(
+        db,
+        meeting.organizer_id,
+        (
+            f"{current_user.name} accepted your session request: "
+            f"'{meeting.title}'.{link_text}"
+        ),
+    )
+    await db.flush()
 
-    return {"meeting": MeetingResponse.model_validate(meeting)}
+    return _meeting_response(meeting)
+
+
+@router.patch("/{meeting_id}/decline", response_model=dict)
+async def decline_meeting(
+    meeting_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    meeting = await db.get(Meeting, meeting_id)
+    if not meeting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
+
+    if meeting.invitee_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the invited participant can decline this meeting",
+        )
+
+    if meeting.status == "cancelled":
+        return _meeting_response(meeting)
+
+    if meeting.calendar_event_id:
+        await _cancel_meet_calendar(meeting.calendar_event_id)
+
+    meeting.status = "cancelled"
+    db.add(meeting)
+    await db.flush()
+
+    await _create_notification(
+        db,
+        meeting.organizer_id,
+        f"{current_user.name} declined your session request: '{meeting.title}'.",
+    )
+    await db.flush()
+
+    return _meeting_response(meeting)
+
+
+@router.patch("/{meeting_id}/cancel", response_model=dict)
+async def cancel_meeting(
+    meeting_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    meeting = await db.get(Meeting, meeting_id)
+    if not meeting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
+
+    if not _is_participant(meeting, current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only session participants can cancel this meeting",
+        )
+
+    if meeting.status == "cancelled":
+        return _meeting_response(meeting)
+
+    if meeting.calendar_event_id:
+        await _cancel_meet_calendar(meeting.calendar_event_id)
+
+    meeting.status = "cancelled"
+    db.add(meeting)
+    await db.flush()
+
+    other_id = (
+        meeting.invitee_id
+        if meeting.organizer_id == current_user.id
+        else meeting.organizer_id
+    )
+    await _create_notification(
+        db,
+        other_id,
+        f"{current_user.name} cancelled the session: '{meeting.title}'.",
+    )
+    await db.flush()
+
+    return _meeting_response(meeting)
+
+
+@router.patch("/{meeting_id}/reschedule", response_model=dict)
+async def reschedule_meeting(
+    meeting_id: uuid.UUID,
+    body: MeetingReschedule,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    meeting = await db.get(Meeting, meeting_id)
+    if not meeting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
+
+    if not _is_participant(meeting, current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only session participants can reschedule this meeting",
+        )
+
+    if meeting.status == "cancelled":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot reschedule a cancelled meeting",
+        )
+
+    user_time_zone = body.user_time_zone or "UTC"
+    duration = body.duration_minutes or meeting.duration_minutes
+    title = body.title or meeting.title
+    description = body.description or meeting.description or ""
+
+    if meeting.calendar_event_id:
+        updated_link = await _update_meet_calendar(
+            event_id=meeting.calendar_event_id,
+            title=title,
+            description=description,
+            scheduled_at=body.scheduled_at,
+            duration_minutes=duration,
+            user_time_zone=user_time_zone,
+        )
+        if updated_link:
+            meeting.meet_link = updated_link
+
+    meeting.scheduled_at = body.scheduled_at
+    meeting.duration_minutes = duration
+    meeting.title = title
+    if body.description is not None:
+        meeting.description = body.description
+    meeting.status = "rescheduled"
+    db.add(meeting)
+    await db.flush()
+
+    other_id = (
+        meeting.invitee_id
+        if meeting.organizer_id == current_user.id
+        else meeting.organizer_id
+    )
+    await _create_notification(
+        db,
+        other_id,
+        (
+            f"{current_user.name} rescheduled the session '{meeting.title}' "
+            f"to {body.scheduled_at.strftime('%Y-%m-%d %H:%M UTC')}."
+        ),
+    )
+    await db.flush()
+
+    return _meeting_response(meeting)
 
 
 @router.get("", response_model=dict)
@@ -310,20 +548,21 @@ async def list_meetings(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Return all meetings where the current user is organiser or invitee,
-    sorted chronologically (nearest first).
-    """
     stmt = (
         select(Meeting)
+        .options(
+            selectinload(Meeting.organizer),
+            selectinload(Meeting.invitee),
+        )
         .where(
             or_(
                 Meeting.organizer_id == current_user.id,
-                Meeting.invitee_id   == current_user.id,
+                Meeting.invitee_id == current_user.id,
             )
         )
         .order_by(Meeting.scheduled_at.asc())
     )
-    result  = await db.execute(stmt)
+    result = await db.execute(stmt)
     meetings = [MeetingResponse.model_validate(m) for m in result.scalars().all()]
     return {"meetings": meetings}
 
@@ -331,14 +570,22 @@ async def list_meetings(
 @router.patch("/{meeting_id}/notes", response_model=dict)
 async def update_meeting_notes(
     meeting_id: uuid.UUID,
-    body: dict,
+    body: MeetingNotesUpdate,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Preserve the existing notes update stub used by the frontend."""
     meeting = await db.get(Meeting, meeting_id)
     if not meeting:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
 
-    # notes field not in DB schema yet; return current record silently
-    return {"meeting": MeetingResponse.model_validate(meeting)}
+    if not _is_participant(meeting, current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only session participants can update notes",
+        )
+
+    meeting.notes = body.notes
+    db.add(meeting)
+    await db.flush()
+
+    return _meeting_response(meeting)

@@ -148,6 +148,18 @@ async def _apply_schema_patches(conn) -> None:
     await conn.execute(
         text("ALTER TABLE meetings ADD COLUMN IF NOT EXISTS status VARCHAR(50) NOT NULL DEFAULT 'pending'")
     )
+    await conn.execute(
+        text("ALTER TABLE meetings ADD COLUMN IF NOT EXISTS duration_minutes INTEGER NOT NULL DEFAULT 60")
+    )
+    await conn.execute(
+        text("ALTER TABLE meetings ADD COLUMN IF NOT EXISTS meeting_provider VARCHAR(50) NOT NULL DEFAULT 'google_meet'")
+    )
+    await conn.execute(
+        text("ALTER TABLE meetings ADD COLUMN IF NOT EXISTS calendar_event_id VARCHAR(255)")
+    )
+    await conn.execute(
+        text("ALTER TABLE meetings ADD COLUMN IF NOT EXISTS notes TEXT")
+    )
 
     # Create news_likes and news_comments tables
     await conn.execute(

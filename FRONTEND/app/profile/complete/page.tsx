@@ -59,7 +59,7 @@ export default function CompleteProfilePage() {
             name: user.name || '',
             bio: user.bio || '',
             skills: (user.skills || []).join(', '),
-            role: user.role,
+            role: user.role as UserRole,
             github_username: '',
             avatar: user.avatar || '',
           })

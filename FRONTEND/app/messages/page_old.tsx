@@ -281,7 +281,7 @@ export default function MessagesPage() {
               >
                 <div className="relative">
                   <Avatar className="w-12 h-12">
-                    <AvatarImage src={conv.user.avatar} />
+                    <AvatarImage src={conv.user.avatar ?? undefined} />
                     <AvatarFallback className="bg-primary/20 text-primary">
                       {conv.user.name.split(' ').map(n => n[0]).join('')}
                     </AvatarFallback>
@@ -295,7 +295,9 @@ export default function MessagesPage() {
                     <span className="font-medium text-foreground truncate">{conv.user.name}</span>
                     <span className="text-xs text-muted-foreground shrink-0">{conv.time}</span>
                   </div>
-                  <p className="text-sm text-muted-foreground truncate">{conv.lastMessage}</p>
+                  <p className="text-sm text-muted-foreground truncate">
+                    {typeof conv.lastMessage === 'string' ? conv.lastMessage : conv.lastMessage?.content ?? ''}
+                  </p>
                 </div>
                 {conv.unread > 0 && (
                   <div className="w-5 h-5 bg-primary rounded-full flex items-center justify-center shrink-0">
@@ -316,7 +318,7 @@ export default function MessagesPage() {
             <div className="flex items-center gap-3">
               <div className="relative">
                 <Avatar className="w-10 h-10">
-                  <AvatarImage src={selectedConversation.user.avatar} />
+                  <AvatarImage src={selectedConversation.user.avatar ?? undefined} />
                   <AvatarFallback className="bg-primary/20 text-primary">
                     {getInitials(selectedConversation.user.name)}
                   </AvatarFallback>

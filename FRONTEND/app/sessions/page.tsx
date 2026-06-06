@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useAuthStore } from '@/lib/store'
 import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
-import { getInitials, formatTimeAgo } from '@/lib/utils/format'
+import { getInitials } from '@/lib/utils/format'
 import { meetingsAPI, usersAPI } from '@/services/api'
 import type { ApiMeeting, ApiUser } from '@/lib/types/api'
 import { toast } from 'sonner'
@@ -31,17 +31,18 @@ import {
   User,
   Loader2,
   ExternalLink,
+  Search,
 } from 'lucide-react'
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const ACTIVE_STATUSES = new Set(['pending', 'confirmed', 'accepted', 'rescheduled'])
+const HISTORY_STATUSES = new Set(['completed', 'cancelled'])
 
-/** Returns true when the current wall-clock time is within the meeting window (±15 min). */
-function isMeetingJoinable(scheduledAt: string): boolean {
-  const now = Date.now()
-  const start = new Date(scheduledAt).getTime()
-  const windowStart = start - 15 * 60 * 1000   // 15 min before
-  const windowEnd   = start + 60 * 60 * 1000   // 60 min after
-  return now >= windowStart && now <= windowEnd
+function isValidMeetLink(url: string | null | undefined): boolean {
+  return (
+    !!url &&
+    url.startsWith('https://meet.google.com/') &&
+    !url.includes('/tmp-')
+  )
 }
 
 function formatScheduled(iso: string) {
@@ -51,87 +52,117 @@ function formatScheduled(iso: string) {
   })
 }
 
+function statusLabel(status: string): string {
+  const map: Record<string, string> = {
+    pending: 'Pending',
+    confirmed: 'Confirmed',
+    accepted: 'Confirmed',
+    rescheduled: 'Rescheduled',
+    completed: 'Completed',
+    cancelled: 'Cancelled',
+  }
+  return map[status] ?? status
+}
+
+function getPeer(meeting: ApiMeeting, userId: string): ApiUser | undefined {
+  if (meeting.organizer_id === userId) return meeting.invitee
+  return meeting.organizer
+}
+
+function getPeerName(meeting: ApiMeeting, userId: string): string {
+  const peer = getPeer(meeting, userId)
+  return peer?.name ?? 'Participant'
+}
+
 // ─── Schedule Modal ────────────────────────────────────────────────────────────
 
 interface ScheduleModalProps {
   open: boolean
   onClose: () => void
   prefillUser: ApiUser | null
-  onSuccessAppend: (newSession: any) => void
 }
 
-function ScheduleModal({ open, onClose, prefillUser, onSuccessAppend }: ScheduleModalProps) {
+function ScheduleModal({ open, onClose, prefillUser }: ScheduleModalProps) {
   const queryClient = useQueryClient()
   const authUser = useAuthStore((s) => s.user)
-  const [title, setTitle]       = useState('')
-  const [desc, setDesc]         = useState('')
-  const [type, setType]         = useState('Mentorship Session')
-  const [time, setTime]         = useState('')
+  const [title, setTitle] = useState('')
+  const [desc, setDesc] = useState('')
+  const [type, setType] = useState('Mentorship Session')
+  const [date, setDate] = useState('')
+  const [time, setTime] = useState('')
+  const [duration, setDuration] = useState('60')
+  const [participant, setParticipant] = useState<ApiUser | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<ApiUser[]>([])
+  const [searching, setSearching] = useState(false)
 
-  // Reset form whenever modal opens
   useEffect(() => {
     if (open) {
       setTitle('')
       setDesc('')
       setType('Mentorship Session')
+      setDate('')
       setTime('')
+      setDuration('60')
+      setParticipant(prefillUser)
+      setSearchQuery('')
+      setSearchResults([])
     }
-  }, [open])
+  }, [open, prefillUser])
+
+  useEffect(() => {
+    if (!open || prefillUser) return
+    if (searchQuery.trim().length < 2) {
+      setSearchResults([])
+      return
+    }
+    const timeout = setTimeout(() => {
+      setSearching(true)
+      usersAPI
+        .search(searchQuery.trim())
+        .then(({ data }) => setSearchResults((data.users ?? []) as ApiUser[]))
+        .catch(() => setSearchResults([]))
+        .finally(() => setSearching(false))
+    }, 300)
+    return () => clearTimeout(timeout)
+  }, [searchQuery, open, prefillUser])
 
   const create = useMutation({
     mutationFn: async () => {
-      const dummyMeetLink = `https://meet.google.com/tmp-${Math.random().toString(36).substring(2, 8)}`;
-      const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const payload = {
+      const selected = participant ?? prefillUser
+      if (!selected) throw new Error('Select a participant')
+      const scheduledAt = new Date(`${date}T${time}`)
+      const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+      const { data } = await meetingsAPI.create({
+        invitee_id: selected.id,
         title: title.trim(),
         description: desc.trim() || undefined,
-        dateTime: new Date(time).toISOString(),
-        timeZone: userTimeZone,
-        hostId: authUser?.id || 'host-1',
-        hostName: authUser?.name || 'Current User',
-        attendeeId: prefillUser!.id,
-        attendeeName: prefillUser!.name,
-      };
-
-      try {
-        const res = await fetch('/api/sessions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-        if (data.success) {
-          return data.data;
-        }
-      } catch (err) {
-        console.warn('API error, using local fallback', err);
-      }
-
-      return {
-        id: `session_local_${Date.now()}`,
-        ...payload,
-        meetLink: dummyMeetLink,
-        status: 'scheduled',
-        createdAt: new Date().toISOString(),
-      };
+        scheduled_at: scheduledAt.toISOString(),
+        meeting_type: type,
+        duration_minutes: Number(duration),
+        user_time_zone: userTimeZone,
+      })
+      return data.meeting as ApiMeeting
     },
-    onSuccess: (newSession) => {
-      toast.success(`Meeting scheduled with ${prefillUser?.name}`)
+    onSuccess: (meeting) => {
+      const peer = getPeerName(meeting, authUser?.id ?? '')
+      toast.success(`Session scheduled with ${peer}`)
       queryClient.invalidateQueries({ queryKey: ['meetings'] })
-      onSuccessAppend(newSession)
       onClose()
     },
-    onError: () => toast.error('Failed to schedule meeting. Please try again.'),
+    onError: () => toast.error('Failed to schedule session. Please try again.'),
   })
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!prefillUser || !title.trim() || !time) {
-      toast.error('Please fill all required fields.')
+    if (!(participant ?? prefillUser) || !title.trim() || !date || !time) {
+      toast.error('Please fill all required fields and select a participant.')
       return
     }
     create.mutate()
   }
+
+  const selectedParticipant = participant ?? prefillUser
 
   if (!open) return null
 
@@ -144,27 +175,20 @@ function ScheduleModal({ open, onClose, prefillUser, onSuccessAppend }: Schedule
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
         >
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={onClose}
-          />
-
-          {/* Modal */}
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
           <motion.div
-            className="relative z-10 w-full max-w-lg glass-card p-6 shadow-2xl"
+            className="relative z-10 w-full max-w-lg glass-card p-6 shadow-2xl max-h-[90vh] overflow-y-auto"
             initial={{ scale: 0.95, opacity: 0, y: 20 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 20 }}
             transition={{ duration: 0.2 }}
           >
-            {/* Header */}
             <div className="flex items-center justify-between mb-5">
               <div>
                 <h2 className="text-lg font-bold text-foreground">Schedule a Session</h2>
-                {prefillUser && (
+                {selectedParticipant && (
                   <p className="text-sm text-muted-foreground mt-0.5">
-                    with <span className="text-primary font-medium">{prefillUser.name}</span>
+                    with <span className="text-primary font-medium">{selectedParticipant.name}</span>
                   </p>
                 )}
               </div>
@@ -173,18 +197,68 @@ function ScheduleModal({ open, onClose, prefillUser, onSuccessAppend }: Schedule
               </Button>
             </div>
 
-            {/* Prefill User Card */}
-            {prefillUser && (
+            {!prefillUser && (
+              <div className="space-y-2 mb-5">
+                <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Participant *
+                </label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search users by name or email..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9 bg-secondary/30 border-border/40"
+                  />
+                </div>
+                {searching && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Searching…
+                  </p>
+                )}
+                {searchResults.length > 0 && (
+                  <div className="max-h-32 overflow-y-auto rounded-lg border border-border/40 divide-y divide-border/30">
+                    {searchResults
+                      .filter((u) => u.id !== authUser?.id)
+                      .map((user) => (
+                        <button
+                          key={user.id}
+                          type="button"
+                          onClick={() => {
+                            setParticipant(user)
+                            setSearchQuery(user.name)
+                            setSearchResults([])
+                          }}
+                          className={`w-full flex items-center gap-2 p-2 text-left hover:bg-secondary/50 ${
+                            participant?.id === user.id ? 'bg-primary/10' : ''
+                          }`}
+                        >
+                          <Avatar className="w-7 h-7">
+                            <AvatarImage src={user.avatar ?? undefined} />
+                            <AvatarFallback className="text-[10px]">{getInitials(user.name)}</AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{user.name}</p>
+                            <p className="text-xs text-muted-foreground capitalize">{user.role}</p>
+                          </div>
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {selectedParticipant && (
               <div className="flex items-center gap-3 p-3 rounded-xl bg-primary/5 border border-primary/15 mb-5">
                 <Avatar className="w-10 h-10">
-                  <AvatarImage src={prefillUser.avatar ?? ''} />
+                  <AvatarImage src={selectedParticipant.avatar ?? undefined} />
                   <AvatarFallback className="bg-primary/20 text-primary text-xs font-semibold">
-                    {getInitials(prefillUser.name)}
+                    {getInitials(selectedParticipant.name)}
                   </AvatarFallback>
                 </Avatar>
                 <div>
-                  <p className="text-sm font-semibold text-foreground">{prefillUser.name}</p>
-                  <p className="text-xs text-muted-foreground capitalize">{prefillUser.role}</p>
+                  <p className="text-sm font-semibold text-foreground">{selectedParticipant.name}</p>
+                  <p className="text-xs text-muted-foreground capitalize">{selectedParticipant.role}</p>
                 </div>
               </div>
             )}
@@ -222,17 +296,48 @@ function ScheduleModal({ open, onClose, prefillUser, onSuccessAppend }: Schedule
                 </select>
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Date *
+                  </label>
+                  <Input
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    className="bg-secondary/30 border-border/40"
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Time *
+                  </label>
+                  <Input
+                    type="time"
+                    value={time}
+                    onChange={(e) => setTime(e.target.value)}
+                    className="bg-secondary/30 border-border/40"
+                    required
+                  />
+                </div>
+              </div>
+
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Date & Time *
+                  Duration (minutes)
                 </label>
-                <Input
-                  type="datetime-local"
-                  value={time}
-                  onChange={(e) => setTime(e.target.value)}
-                  className="bg-secondary/30 border-border/40"
-                  required
-                />
+                <select
+                  value={duration}
+                  onChange={(e) => setDuration(e.target.value)}
+                  className="w-full h-9 rounded-lg bg-secondary/30 border border-border/40 px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <option value="30">30 minutes</option>
+                  <option value="45">45 minutes</option>
+                  <option value="60">60 minutes</option>
+                  <option value="90">90 minutes</option>
+                  <option value="120">120 minutes</option>
+                </select>
               </div>
 
               <div className="space-y-1.5">
@@ -251,11 +356,7 @@ function ScheduleModal({ open, onClose, prefillUser, onSuccessAppend }: Schedule
                 <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
                   Cancel
                 </Button>
-                <Button
-                  type="submit"
-                  className="flex-1 glow-primary"
-                  disabled={create.isPending}
-                >
+                <Button type="submit" className="flex-1 glow-primary" disabled={create.isPending}>
                   {create.isPending ? (
                     <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Scheduling…</>
                   ) : (
@@ -275,63 +376,49 @@ function ScheduleModal({ open, onClose, prefillUser, onSuccessAppend }: Schedule
 
 function SessionsPageContent() {
   useProtectedRoute()
-  const router       = useRouter()
+  const router = useRouter()
   const searchParams = useSearchParams()
-  const queryClient  = useQueryClient()
-  const authUser     = useAuthStore((s) => s.user)
+  const queryClient = useQueryClient()
+  const authUser = useAuthStore((s) => s.user)
 
-  // ── Modal state ──
-  const [modalOpen,    setModalOpen]    = useState(false)
-  const [prefillUser,  setPrefillUser]  = useState<ApiUser | null>(null)
-
-  // ── Active selected meeting for notes ──
+  const [modalOpen, setModalOpen] = useState(false)
+  const [prefillUser, setPrefillUser] = useState<ApiUser | null>(null)
   const [activeMeetingId, setActiveMeetingId] = useState<string | null>(null)
-  const [notes,           setNotes]           = useState('')
-  const [notesSaving,     setNotesSaving]     = useState(false)
+  const [notes, setNotes] = useState('')
+  const [notesSaving, setNotesSaving] = useState(false)
+  const [rescheduleId, setRescheduleId] = useState<string | null>(null)
+  const [rescheduleDate, setRescheduleDate] = useState('')
+  const [rescheduleTime, setRescheduleTime] = useState('')
   const debounceRef = useRef<NodeJS.Timeout | null>(null)
 
-  // ── Live clock for join-call gating (re-evaluates every 30s) ──
-  const [now, setNow] = useState(Date.now())
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 30_000)
-    return () => clearInterval(t)
-  }, [])
-
-  // ── Fetch all live sessions ──
-  const [liveSessions, setLiveSessions] = useState<any[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('nexus_sessions')
-      return saved ? JSON.parse(saved) : []
-    }
-    return []
+  const { data: allMeetings = [], isLoading: loadingMeetings } = useQuery({
+    queryKey: ['meetings'],
+    queryFn: async () => {
+      const { data } = await meetingsAPI.list()
+      return (data.meetings ?? []) as ApiMeeting[]
+    },
+    enabled: !!authUser?.id,
   })
-  const [loadingMeetings, setLoadingMeetings] = useState(true)
 
-  const fetchSessions = useCallback(() => {
-    if (!authUser?.id) return
-    setLoadingMeetings(true)
-    fetch(`/api/sessions?userId=${authUser.id}`)
-      .then(r => r.json())
-      .then(res => {
-        if (res.success && res.data) {
-          setLiveSessions(res.data)
-          localStorage.setItem('nexus_sessions', JSON.stringify(res.data))
-        }
-      })
-      .catch(console.error)
-      .finally(() => setLoadingMeetings(false))
-  }, [authUser?.id])
+  const now = new Date()
+  const upcoming = allMeetings.filter(
+    (m) =>
+      new Date(m.scheduled_at) >= now &&
+      ACTIVE_STATUSES.has(m.status) &&
+      (m.status !== 'pending' || m.organizer_id === authUser?.id)
+  )
+  const pendingRequests = allMeetings.filter(
+    (m) =>
+      new Date(m.scheduled_at) >= now &&
+      m.status === 'pending' &&
+      m.invitee_id === authUser?.id
+  )
+  const history = allMeetings.filter(
+    (m) =>
+      HISTORY_STATUSES.has(m.status) ||
+      (new Date(m.scheduled_at) < now && ACTIVE_STATUSES.has(m.status))
+  )
 
-  useEffect(() => {
-    fetchSessions()
-  }, [fetchSessions])
-
-  const allMeetings     = liveSessions
-  const upcoming        = allMeetings.filter((m) => new Date(m.dateTime) >= new Date() && (m.hostId === authUser?.id || (m.attendeeId === authUser?.id && m.status === 'accepted')))
-  const pendingRequests = allMeetings.filter((m) => new Date(m.dateTime) >= new Date() && m.attendeeId === authUser?.id && (m.status === 'pending' || m.status === 'scheduled'))
-  const history         = allMeetings.filter((m) => m.status === 'completed')
-
-  // When active meeting changes, seed notes from DB
   useEffect(() => {
     if (activeMeetingId) {
       const m = allMeetings.find((x) => x.id === activeMeetingId)
@@ -339,7 +426,6 @@ function SessionsPageContent() {
     }
   }, [activeMeetingId, allMeetings])
 
-  // ── Debounced notes auto-save ──
   const saveNotes = useCallback(async (meetingId: string, text: string) => {
     setNotesSaving(true)
     try {
@@ -359,85 +445,83 @@ function SessionsPageContent() {
     debounceRef.current = setTimeout(() => saveNotes(activeMeetingId, text), 500)
   }
 
-  // Cleanup debounce on unmount
   useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current) }, [])
 
-  // ── Accept / Decline mutations ──
   const acceptMeeting = useMutation({
-    mutationFn: async (id: string) => {
-      const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
-      const res = await fetch('/api/sessions', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          sessionId: id,
-          timeZone: localTimeZone,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to accept meeting')
-      }
-      return data.data
-    },
+    mutationFn: (id: string) => meetingsAPI.accept(id),
     onSuccess: () => {
-      toast.success('Meeting accepted')
-      fetchSessions()
+      toast.success('Session accepted')
       queryClient.invalidateQueries({ queryKey: ['meetings'] })
     },
-    onError: (err: any) => {
-      toast.error(err.message || 'Failed to accept meeting')
-    },
+    onError: () => toast.error('Failed to accept session'),
   })
 
   const declineMeeting = useMutation({
-    mutationFn: (id: string) => meetingsAPI.updateNotes(id, { notes: '' }), // placeholder
+    mutationFn: (id: string) => meetingsAPI.decline(id),
     onSuccess: () => {
-      toast.success('Meeting declined')
-      fetchSessions()
+      toast.success('Session declined')
       queryClient.invalidateQueries({ queryKey: ['meetings'] })
     },
-    onError: () => toast.error('Failed to decline meeting'),
+    onError: () => toast.error('Failed to decline session'),
   })
 
-  // ── URL param handler: open modal + prefill user from targetId ──
+  const cancelMeeting = useMutation({
+    mutationFn: (id: string) => meetingsAPI.cancel(id),
+    onSuccess: () => {
+      toast.success('Session cancelled')
+      queryClient.invalidateQueries({ queryKey: ['meetings'] })
+    },
+    onError: () => toast.error('Failed to cancel session'),
+  })
+
+  const rescheduleMeeting = useMutation({
+    mutationFn: ({ id, scheduledAt, duration }: { id: string; scheduledAt: string; duration: number }) =>
+      meetingsAPI.reschedule(id, {
+        scheduled_at: scheduledAt,
+        duration_minutes: duration,
+        user_time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }),
+    onSuccess: () => {
+      toast.success('Session rescheduled')
+      setRescheduleId(null)
+      setRescheduleDate('')
+      setRescheduleTime('')
+      queryClient.invalidateQueries({ queryKey: ['meetings'] })
+    },
+    onError: () => toast.error('Failed to reschedule session'),
+  })
+
   useEffect(() => {
-    const action   = searchParams.get('action')
+    const action = searchParams.get('action')
     const targetId = searchParams.get('targetId')
     if (action === 'schedule' && targetId) {
-      // Fetch the real user profile for pre-population
-      usersAPI.getProfile(targetId)
+      usersAPI
+        .getProfile(targetId)
         .then(({ data }) => {
           const profile: ApiUser = data.user ?? data
           setPrefillUser(profile)
           setModalOpen(true)
         })
-        .catch(() => {
-          // Open modal without prefill if fetch fails
-          setModalOpen(true)
-        })
-      // Clear params from URL so refreshing doesn't re-trigger
+        .catch(() => setModalOpen(true))
       router.replace('/sessions', { scroll: false })
     }
   }, [searchParams, router])
 
-  // ── Peer helper: get the other participant from a meeting ──
-  const getPeerName = (meeting: any): string => {
-    if (meeting.attendeeId !== authUser?.id) return meeting.attendeeName
-    return meeting.hostName
-  }
-  const getPeerId = (meeting: any): string => {
-    if (meeting.attendeeId !== authUser?.id) return meeting.attendeeId
-    return meeting.hostId
+  const handleRescheduleSubmit = (meeting: ApiMeeting) => {
+    if (!rescheduleDate || !rescheduleTime) {
+      toast.error('Select a new date and time')
+      return
+    }
+    rescheduleMeeting.mutate({
+      id: meeting.id,
+      scheduledAt: new Date(`${rescheduleDate}T${rescheduleTime}`).toISOString(),
+      duration: meeting.duration_minutes ?? 60,
+    })
   }
 
   return (
     <AppShell title="Sessions">
       <div className="max-w-7xl mx-auto space-y-8 pb-16">
-
-        {/* ── Page Header ── */}
         <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-sidebar/30 p-8 mesh-gradient">
           <div className="relative z-10 max-w-2xl space-y-3">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-xs font-semibold text-primary uppercase tracking-wider">
@@ -460,10 +544,7 @@ function SessionsPageContent() {
           </div>
         </div>
 
-        {/* ── 2-column grid ── */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-
-          {/* ──── Module 1: Upcoming Meetings ──── */}
           <motion.div
             className="glass-card p-5 flex flex-col gap-4"
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
@@ -489,14 +570,14 @@ function SessionsPageContent() {
               <div className="flex flex-col items-center justify-center py-10 text-center">
                 <Calendar className="w-10 h-10 text-muted-foreground/30 mb-3" />
                 <p className="text-sm font-medium text-muted-foreground">No upcoming meetings</p>
-                <p className="text-xs text-muted-foreground/60 mt-1">Schedule one from the Network page</p>
+                <p className="text-xs text-muted-foreground/60 mt-1">Schedule a session to get started</p>
               </div>
             ) : (
               <div className="space-y-3">
                 {upcoming.map((meeting) => {
-                  const peerName  = getPeerName(meeting)
-                  const joinable  = isMeetingJoinable(meeting.dateTime)
-                  const meetUrl   = meeting.meetLink
+                  const peerName = getPeerName(meeting, authUser?.id ?? '')
+                  const canJoin = isValidMeetLink(meeting.meet_link)
+                  const isRescheduling = rescheduleId === meeting.id
 
                   return (
                     <div
@@ -512,30 +593,80 @@ function SessionsPageContent() {
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-sm text-foreground truncate">{meeting.title}</p>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            Meeting with {meeting.hostName === authUser?.name ? meeting.attendeeName : meeting.hostName}
+                            with {peerName}
                           </p>
                           <div className="flex items-center gap-1.5 mt-1.5 text-xs text-accent font-medium">
                             <Clock className="w-3.5 h-3.5" />
-                            {formatScheduled(meeting.dateTime)}
+                            {formatScheduled(meeting.scheduled_at)}
                           </div>
                           <span className="inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full bg-secondary text-muted-foreground">
-                            Session
+                            {meeting.meeting_type} · {statusLabel(meeting.status)}
                           </span>
                         </div>
                       </div>
 
+                      {isRescheduling && (
+                        <div className="mt-3 pt-3 border-t border-border/30 flex flex-wrap gap-2 items-end">
+                          <Input
+                            type="date"
+                            value={rescheduleDate}
+                            onChange={(e) => setRescheduleDate(e.target.value)}
+                            className="h-8 text-xs bg-secondary/30 flex-1 min-w-[120px]"
+                          />
+                          <Input
+                            type="time"
+                            value={rescheduleTime}
+                            onChange={(e) => setRescheduleTime(e.target.value)}
+                            className="h-8 text-xs bg-secondary/30 flex-1 min-w-[100px]"
+                          />
+                          <Button
+                            size="sm"
+                            className="h-8 text-xs"
+                            disabled={rescheduleMeeting.isPending}
+                            onClick={() => handleRescheduleSubmit(meeting)}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 text-xs"
+                            onClick={() => setRescheduleId(null)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      )}
+
                       <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/30">
-                        <Button variant="ghost" size="sm" className="text-xs text-muted-foreground hover:text-foreground h-7">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs text-muted-foreground hover:text-foreground h-7"
+                          onClick={() => {
+                            setRescheduleId(meeting.id)
+                            const d = new Date(meeting.scheduled_at)
+                            setRescheduleDate(d.toISOString().slice(0, 10))
+                            setRescheduleTime(d.toTimeString().slice(0, 5))
+                          }}
+                        >
                           Reschedule
                         </Button>
-                        <Button variant="ghost" size="sm" className="text-xs text-red-500 hover:text-red-600 hover:bg-red-500/10 h-7">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs text-red-500 hover:text-red-600 hover:bg-red-500/10 h-7"
+                          disabled={cancelMeeting.isPending}
+                          onClick={() => cancelMeeting.mutate(meeting.id)}
+                        >
                           Cancel
                         </Button>
                         <Button
                           size="sm"
                           className="ml-auto h-7 text-xs gap-1.5 glow-primary"
-                          disabled={!meeting.meetLink}
-                          onClick={() => window.open(meeting.meetLink, '_blank', 'noopener')}
+                          disabled={!canJoin}
+                          title={canJoin ? 'Join Google Meet' : 'Meet link not available yet'}
+                          onClick={() => window.open(meeting.meet_link, '_blank', 'noopener')}
                         >
                           <ExternalLink className="w-3.5 h-3.5" />
                           Join Meet
@@ -548,7 +679,6 @@ function SessionsPageContent() {
             )}
           </motion.div>
 
-          {/* ──── Module 2: Pending Requests ──── */}
           <motion.div
             className="glass-card p-5 flex flex-col gap-4"
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
@@ -578,7 +708,7 @@ function SessionsPageContent() {
             ) : (
               <div className="space-y-3">
                 {pendingRequests.map((req) => {
-                  const senderName = getPeerName(req)
+                  const senderName = getPeerName(req, authUser?.id ?? '')
                   return (
                     <div
                       key={req.id}
@@ -595,7 +725,7 @@ function SessionsPageContent() {
                           <p className="text-xs text-muted-foreground mt-0.5">from {senderName}</p>
                           <div className="flex items-center gap-1.5 mt-1.5 text-xs text-muted-foreground font-medium">
                             <Calendar className="w-3.5 h-3.5" />
-                            {formatScheduled(req.dateTime)}
+                            {formatScheduled(req.scheduled_at)}
                           </div>
                         </div>
                       </div>
@@ -625,7 +755,6 @@ function SessionsPageContent() {
             )}
           </motion.div>
 
-          {/* ──── Module 3: Sessions History ──── */}
           <motion.div
             className="glass-card p-5 flex flex-col gap-4"
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
@@ -650,7 +779,7 @@ function SessionsPageContent() {
             ) : (
               <div className="space-y-1">
                 {history.map((session) => {
-                  const peerName = getPeerName(session)
+                  const peerName = getPeerName(session, authUser?.id ?? '')
                   const isActive = activeMeetingId === session.id
                   return (
                     <button
@@ -673,7 +802,7 @@ function SessionsPageContent() {
                             {session.title}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            with {peerName} · {formatScheduled(session.dateTime)}
+                            with {peerName} · {formatScheduled(session.scheduled_at)} · {statusLabel(session.status)}
                           </p>
                         </div>
                       </div>
@@ -687,7 +816,6 @@ function SessionsPageContent() {
             )}
           </motion.div>
 
-          {/* ──── Module 4: Session Notes ──── */}
           <motion.div
             className="glass-card p-5 flex flex-col gap-4"
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
@@ -739,18 +867,10 @@ function SessionsPageContent() {
         </div>
       </div>
 
-      {/* ── Schedule Modal ── */}
       <ScheduleModal
         open={modalOpen}
         onClose={() => { setModalOpen(false); setPrefillUser(null) }}
         prefillUser={prefillUser}
-        onSuccessAppend={(newSession) => {
-          setLiveSessions(prev => {
-            const updated = [...prev, newSession]
-            localStorage.setItem('nexus_sessions', JSON.stringify(updated))
-            return updated
-          })
-        }}
       />
     </AppShell>
   )

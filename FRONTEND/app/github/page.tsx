@@ -732,7 +732,7 @@ export default function GitHubPage() {
                               <Avatar className="w-7 h-7">
                                 {msg.sender === 'user' ? (
                                   <>
-                                    <AvatarImage src={authUser?.avatar} />
+                                    <AvatarImage src={authUser?.avatar ?? undefined} />
                                     <AvatarFallback className="bg-primary/20 text-[10px] text-primary">
                                       {getInitials(authUser?.name || 'U')}
                                     </AvatarFallback>

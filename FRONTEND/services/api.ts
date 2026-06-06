@@ -336,13 +336,32 @@ export const newsAPI = {
 }
 
 export const meetingsAPI = {
-  create: (data: { invitee_id: string; title: string; description?: string; scheduled_at: string; meeting_type: string; user_time_zone?: string }) =>
-    api.post('/meetings', data),
+  create: (data: {
+    invitee_id: string
+    title: string
+    description?: string
+    scheduled_at: string
+    meeting_type: string
+    duration_minutes?: number
+    user_time_zone?: string
+  }) => api.post('/meetings', data),
   list: () => api.get('/meetings'),
   accept: (id: string) => {
     const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
     return api.patch(`/meetings/${id}/accept`, { user_time_zone: userTimeZone })
   },
+  decline: (id: string) => api.patch(`/meetings/${id}/decline`),
+  cancel: (id: string) => api.patch(`/meetings/${id}/cancel`),
+  reschedule: (
+    id: string,
+    data: {
+      scheduled_at: string
+      duration_minutes?: number
+      title?: string
+      description?: string
+      user_time_zone?: string
+    }
+  ) => api.patch(`/meetings/${id}/reschedule`, data),
   updateNotes: (id: string, data: { notes: string }) => api.patch(`/meetings/${id}/notes`, data),
 }
 

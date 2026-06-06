@@ -131,7 +131,7 @@ function Sidebar() {
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-sidebar-accent transition-all group"
         >
           <Avatar className="w-8 h-8 shrink-0">
-            <AvatarImage src={user?.avatar} />
+            <AvatarImage src={user?.avatar ?? undefined} />
             <AvatarFallback className="bg-primary/20 text-primary text-xs font-semibold">
               {user ? getInitials(user.name) : 'U'}
             </AvatarFallback>

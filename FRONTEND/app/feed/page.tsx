@@ -867,7 +867,7 @@ export default function FeedPage() {
                   <div className="glass-card p-5">
                     <div className="flex gap-4">
                       <Avatar className="w-10 h-10 shrink-0">
-                        <AvatarImage src={user?.avatar} />
+                        <AvatarImage src={user?.avatar ?? undefined} />
                         <AvatarFallback className="bg-primary/20 text-primary">
                           {user ? getInitials(user.name) : 'U'}
                         </AvatarFallback>
@@ -1921,7 +1921,7 @@ export default function FeedPage() {
                                         <div className={`flex gap-3 max-w-[85%] ${msg.sender === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                                           <Avatar className="w-7 h-7 shrink-0">
                                             {msg.sender === 'user' ? (
-                                              <><AvatarImage src={user?.avatar} /><AvatarFallback className="bg-primary/20 text-[10px] text-primary">{getInitials(user?.name || 'U')}</AvatarFallback></>
+                                              <><AvatarImage src={user?.avatar ?? undefined} /><AvatarFallback className="bg-primary/20 text-[10px] text-primary">{getInitials(user?.name || 'U')}</AvatarFallback></>
                                             ) : (
                                               <AvatarFallback className="bg-green-500/20 text-[10px] text-green-500">AI</AvatarFallback>
                                             )}

@@ -73,7 +73,7 @@ export default function PostDetailPage({ params }: { params: Promise<{ id: strin
         <article className="glass-card p-6">
           <div className="flex items-start gap-4">
             <Avatar className="w-12 h-12">
-              <AvatarImage src={view.author.avatar} />
+              <AvatarImage src={view.author.avatar ?? undefined} />
               <AvatarFallback>{getInitials(view.author.name)}</AvatarFallback>
             </Avatar>
             <div className="flex-1">

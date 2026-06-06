@@ -71,9 +71,9 @@ export default function PublicProfilePage({ params }: { params: Promise<{ id: st
           <h1 className="text-2xl font-bold">{profile.name}</h1>
           <p className="text-muted-foreground">{roleLabel(profile.role)}</p>
           {profile.bio && <p className="mt-4 text-muted-foreground">{profile.bio}</p>}
-          {profile.skills?.length > 0 && (
+          {(profile.skills?.length ?? 0) > 0 && (
             <div className="flex flex-wrap justify-center gap-2 mt-4">
-              {profile.skills.map((s: string) => (
+              {(profile.skills ?? []).map((s: string) => (
                 <span key={s} className="px-3 py-1 rounded-full bg-primary/10 text-primary text-sm">
                   {s}
                 </span>
