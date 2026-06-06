@@ -73,9 +73,7 @@ export function mapConversations(
 ): ConversationView[] {
   if (!currentUserId) return []
   return sortConversations(
-    rawList
-      .filter(hasConversationMessages)
-      .map((raw) => mapConversation(raw, currentUserId))
+    rawList.map((raw) => mapConversation(raw, currentUserId))
   )
 }
 

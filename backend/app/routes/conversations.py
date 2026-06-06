@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import and_, desc, exists, func, select
+from sqlalchemy import and_, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -126,7 +126,7 @@ async def _unread_count(db: AsyncSession, conversation_id: UUID, user_id: UUID) 
 
 async def _build_conversation_response(
     db: AsyncSession, conv: Conversation, current_user: CurrentUser
-) -> ConversationResponse | None:
+) -> ConversationResponse:
     last_msg_result = await db.execute(
         select(Message)
         .where(Message.conversation_id == conv.id)
@@ -134,15 +134,13 @@ async def _build_conversation_response(
         .limit(1)
     )
     last_msg = last_msg_result.scalar_one_or_none()
-    if not last_msg:
-        return None
 
     unread = await _unread_count(db, conv.id, current_user.id)
     return ConversationResponse(
         id=conv.id,
         participants=[to_user_public(p) for p in conv.participants],
-        last_message=_last_message_preview(last_msg),
-        last_message_at=last_msg.timestamp,
+        last_message=_last_message_preview(last_msg) if last_msg else None,
+        last_message_at=last_msg.timestamp if last_msg else None,
         unread=unread,
     )
 
@@ -152,10 +150,7 @@ async def list_conversations(current_user: CurrentUser, db: AsyncSession = Depen
     result = await db.execute(
         select(Conversation)
         .join(conversation_participants)
-        .where(
-            conversation_participants.c.user_id == current_user.id,
-            exists().where(Message.conversation_id == Conversation.id),
-        )
+        .where(conversation_participants.c.user_id == current_user.id)
         .options(selectinload(Conversation.participants))
         .order_by(Conversation.updated_at.desc())
     )
@@ -163,9 +158,7 @@ async def list_conversations(current_user: CurrentUser, db: AsyncSession = Depen
     items: list[ConversationResponse] = []
 
     for conv in conversations:
-        item = await _build_conversation_response(db, conv, current_user)
-        if item:
-            items.append(item)
+        items.append(await _build_conversation_response(db, conv, current_user))
 
     items.sort(
         key=lambda item: (
@@ -190,14 +183,7 @@ async def create_conversation(
     existing = await _find_existing_conversation(db, participant_ids)
     if existing:
         item = await _build_conversation_response(db, existing, current_user)
-        return {
-            "conversation": item
-            or ConversationResponse(
-                id=existing.id,
-                participants=[to_user_public(p) for p in existing.participants],
-                unread=0,
-            )
-        }
+        return {"conversation": item}
 
     users_result = await db.execute(select(User).where(User.id.in_(participant_ids)))
     users = users_result.scalars().all()
