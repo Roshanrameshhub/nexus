@@ -10,6 +10,25 @@ from app.config.settings import get_settings
 settings = get_settings()
 GITHUB_API = "https://api.github.com"
 
+LANGUAGE_COLORS = {
+    "TypeScript": "#3178c6",
+    "JavaScript": "#f1e05a",
+    "Python": "#3572A5",
+    "Rust": "#dea584",
+    "Go": "#00ADD8",
+    "Java": "#b07219",
+    "HTML": "#e34c26",
+    "CSS": "#563d7c",
+    "Shell": "#89e051",
+    "Ruby": "#701516",
+    "C++": "#f34b7d",
+    "C": "#555555",
+    "C#": "#178600",
+    "PHP": "#4F5D95",
+    "Swift": "#F05138",
+    "Kotlin": "#A97BFF",
+}
+
 
 class GitHubService:
     def oauth_init_url(self) -> str:
@@ -95,6 +114,10 @@ class GitHubService:
             "isFork": data.get("fork", False),
         }
 
+    async def get_authenticated_user(self, token: str) -> Optional[dict]:
+        data = await self._get("/user", token)
+        return self.map_user(data) if data else None
+
     async def get_profile(self, username: str, token: Optional[str] = None) -> Optional[dict]:
         data = await self._get(f"/users/{username}", token)
         return self.map_user(data) if data else None
@@ -103,10 +126,16 @@ class GitHubService:
         self, username: str, token: Optional[str] = None, page: int = 1, limit: int = 20, sort: str = "updated"
     ) -> List[dict]:
         sort_param = "pushed" if sort == "updated" else sort
-        data = await self._get(
-            f"/users/{username}/repos?per_page={limit}&page={page}&sort={sort_param}",
-            token,
-        )
+        if token:
+            data = await self._get(
+                f"/user/repos?per_page={limit}&page={page}&sort={sort_param}&affiliation=owner",
+                token,
+            )
+        else:
+            data = await self._get(
+                f"/users/{username}/repos?per_page={limit}&page={page}&sort={sort_param}",
+                None,
+            )
         if not data:
             return []
         return [self.map_repo(r) for r in data]

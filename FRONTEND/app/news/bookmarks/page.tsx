@@ -19,7 +19,7 @@ export default function NewsBookmarksPage() {
     queryKey: queryKeys.news.bookmarks,
     queryFn: async () => {
       const { data } = await newsAPI.getBookmarks()
-      return data.articles as NewsArticle[]
+      return (data.articles ?? []) as NewsArticle[]
     },
   })
 

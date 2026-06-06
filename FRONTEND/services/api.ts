@@ -172,13 +172,16 @@ export const usersAPI = {
   getProfile: (id: string) => api.get(`/users/${id}`),
   updateProfile: (id: string, data: Record<string, unknown>) =>
     api.patch(`/users/${id}`, data),
-  getRecommendations: (roles?: string[]) => {
-    let url = '/users/recommendations'
-    if (roles && roles.length > 0) {
-      const params = roles.map(r => `role=${encodeURIComponent(r)}`).join('&')
-      url += `?${params}`
+  getRecommendations: (roles?: string[], country?: string) => {
+    const params = new URLSearchParams()
+    if (roles?.length) {
+      roles.forEach((r) => params.append('role', r))
     }
-    return api.get(url)
+    if (country?.trim()) {
+      params.set('country', country.trim())
+    }
+    const qs = params.toString()
+    return api.get(`/users/recommendations${qs ? `?${qs}` : ''}`)
   },
   search: (query: string) => api.get(`/users/search?q=${encodeURIComponent(query)}`),
   follow: (userId: string) => api.post(`/users/${userId}/follow`),
@@ -210,12 +213,24 @@ export const postsAPI = {
     api.post(`/posts/${id}/comments`, { content }),
 }
 
+export interface MessageSendPayload {
+  content?: string
+  message_type?: 'text' | 'file' | 'image'
+  file_name?: string
+  file_url?: string
+  file_size?: number
+  mime_type?: string
+}
+
 export const messagesAPI = {
   getConversations: () => api.get('/conversations'),
   getMessages: (conversationId: string) =>
     api.get(`/conversations/${conversationId}/messages`),
-  sendMessage: (conversationId: string, content: string) =>
-    api.post(`/conversations/${conversationId}/messages`, { content }),
+  sendMessage: (conversationId: string, payload: string | MessageSendPayload) =>
+    api.post(
+      `/conversations/${conversationId}/messages`,
+      typeof payload === 'string' ? { content: payload } : payload
+    ),
   createConversation: (participantIds: string[]) =>
     api.post('/conversations', { participant_ids: participantIds }),
 }
@@ -228,14 +243,25 @@ export const notificationsAPI = {
 
 export const communitiesAPI = {
   getAll: () => api.get('/communities'),
-  create: (data: { name: string; description?: string }) => api.post('/communities', data),
+  create: (data: { name: string; description?: string; tags?: string[] }) => api.post('/communities', data),
   get: (id: string) => api.get(`/communities/${id}`),
-  getDiscussions: (communityId: string) =>
-    api.get(`/communities/${communityId}/discussions`),
+  getDiscussions: (communityId: string, sort = 'recent') =>
+    api.get(`/communities/${communityId}/discussions?sort=${sort}`),
   createDiscussion: (communityId: string, data: { title: string; content: string }) =>
     api.post(`/communities/${communityId}/discussions`, data),
   join: (id: string) => api.post(`/communities/${id}/join`),
   leave: (id: string) => api.post(`/communities/${id}/leave`),
+  getDiscussion: (id: string) => api.get(`/communities/discussions/${id}`),
+  likeDiscussion: (id: string) => api.post(`/communities/discussions/${id}/like`),
+  shareDiscussion: (id: string) => api.post(`/communities/discussions/${id}/share`),
+  getDiscussionComments: (discussionId: string, sort = 'recent', page = 1, limit = 20) =>
+    api.get(`/communities/discussions/${discussionId}/comments?sort=${sort}&page=${page}&limit=${limit}`),
+  commentOnDiscussion: (discussionId: string, content: string) =>
+    api.post(`/communities/discussions/${discussionId}/comments`, { content }),
+  replyToDiscussionComment: (commentId: string, content: string) =>
+    api.post(`/communities/discussion-comments/${commentId}/replies`, { content }),
+  getDiscussionCommentReplies: (commentId: string, page = 1, limit = 10) =>
+    api.get(`/communities/discussion-comments/${commentId}/replies?page=${page}&limit=${limit}`),
 }
 
 export const teamsAPI = {
@@ -322,6 +348,15 @@ export const uploadAPI = {
     const formData = new FormData()
     files.forEach((file) => formData.append('files', file))
     return api.post('/upload/images', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    })
+  },
+  uploadFile: (file: File) => {
+    const formData = new FormData()
+    formData.append('files', file)
+    return api.post('/upload/files', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },

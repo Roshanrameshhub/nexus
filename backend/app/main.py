@@ -1,17 +1,16 @@
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
-
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config.settings import get_settings
 from app.database import init_db
 from app.routes import api_router
+from app.routes.files import router as files_router
 from app.websocket.routes import router as ws_router
+from app.utils.paths import UPLOAD_DIR
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
@@ -50,11 +49,8 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-# Mount static files for uploads
-uploads_dir = Path("uploads")
-if uploads_dir.exists():
-    app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+app.include_router(files_router)
 
 @app.exception_handler(SQLAlchemyError)
 async def database_exception_handler(_: Request, exc: SQLAlchemyError):

@@ -12,7 +12,12 @@ class ConversationCreate(BaseModel):
 
 
 class MessageCreate(BaseModel):
-    content: str
+    content: str = ""
+    message_type: str = "text"
+    file_name: Optional[str] = None
+    file_url: Optional[str] = None
+    file_size: Optional[int] = None
+    mime_type: Optional[str] = None
 
 
 class MessageResponse(BaseModel):
@@ -21,6 +26,12 @@ class MessageResponse(BaseModel):
     sender_id: UUID
     timestamp: datetime
     sender: Optional[UserPublic] = None
+    message_type: str = "text"
+    file_name: Optional[str] = None
+    file_url: Optional[str] = None
+    mime_type: Optional[str] = None
+    file_size: Optional[int] = None
+    uploaded_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 

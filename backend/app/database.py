@@ -96,6 +96,12 @@ async def _apply_schema_patches(conn) -> None:
     await conn.execute(
         text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_edited BOOLEAN NOT NULL DEFAULT FALSE")
     )
+    await conn.execute(
+        text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS message_type VARCHAR(20) NOT NULL DEFAULT 'text'")
+    )
+    await conn.execute(
+        text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_meta JSONB")
+    )
     
     # Add new onboarding user columns
     await conn.execute(
@@ -109,6 +115,12 @@ async def _apply_schema_patches(conn) -> None:
     )
     await conn.execute(
         text("ALTER TABLE users ADD COLUMN IF NOT EXISTS role_details JSONB DEFAULT '{}'::jsonb")
+    )
+    await conn.execute(
+        text("ALTER TABLE users ADD COLUMN IF NOT EXISTS github_user_id VARCHAR(50)")
+    )
+    await conn.execute(
+        text("ALTER TABLE users ADD COLUMN IF NOT EXISTS github_avatar_url VARCHAR(500)")
     )
 
     # Alter UserRole enum type to include new values
@@ -204,6 +216,55 @@ async def _apply_schema_patches(conn) -> None:
     )
     await conn.execute(
         text("ALTER TABLE startup_positions ADD COLUMN IF NOT EXISTS contact_email VARCHAR(255)")
+    )
+
+    await conn.execute(
+        text("ALTER TABLE communities ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}'::text[]")
+    )
+    await conn.execute(
+        text("ALTER TABLE community_discussions ADD COLUMN IF NOT EXISTS likes_count INTEGER NOT NULL DEFAULT 0")
+    )
+    await conn.execute(
+        text("ALTER TABLE community_discussions ADD COLUMN IF NOT EXISTS comments_count INTEGER NOT NULL DEFAULT 0")
+    )
+    await conn.execute(
+        text("ALTER TABLE community_discussions ADD COLUMN IF NOT EXISTS views_count INTEGER NOT NULL DEFAULT 0")
+    )
+    await conn.execute(
+        text("ALTER TABLE community_discussions ADD COLUMN IF NOT EXISTS shares_count INTEGER NOT NULL DEFAULT 0")
+    )
+    await conn.execute(
+        text("ALTER TABLE community_discussions ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN NOT NULL DEFAULT FALSE")
+    )
+    await conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS discussion_likes (
+                id UUID PRIMARY KEY,
+                discussion_id UUID NOT NULL REFERENCES community_discussions(id) ON DELETE CASCADE,
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                CONSTRAINT uq_discussion_like UNIQUE (discussion_id, user_id)
+            )
+            """
+        )
+    )
+    await conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS discussion_comments (
+                id UUID PRIMARY KEY,
+                discussion_id UUID NOT NULL REFERENCES community_discussions(id) ON DELETE CASCADE,
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                parent_comment_id UUID REFERENCES discussion_comments(id) ON DELETE CASCADE,
+                content TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
+    )
+    await conn.execute(
+        text("CREATE INDEX IF NOT EXISTS ix_discussion_comments_parent ON discussion_comments (parent_comment_id)")
     )
 
 

@@ -38,7 +38,9 @@ async def oauth_callback(body: OAuthCallbackBody, current_user: CurrentUser, db:
 
     profile = await github_service._get("/user", access_token)
     if profile:
+        current_user.github_user_id = str(profile.get("id", "")) or None
         current_user.github_username = profile.get("login")
+        current_user.github_avatar_url = profile.get("avatar_url")
         current_user.github_access_token = access_token
         await db.flush()
         return {"success": True, "user": github_service.map_user(profile)}
@@ -47,7 +49,9 @@ async def oauth_callback(body: OAuthCallbackBody, current_user: CurrentUser, db:
 
 @router.delete("/disconnect")
 async def disconnect(current_user: CurrentUser, db: AsyncSession = Depends(get_db)):
+    current_user.github_user_id = None
     current_user.github_username = None
+    current_user.github_avatar_url = None
     current_user.github_access_token = None
     await db.flush()
     return {"message": "GitHub disconnected"}
@@ -57,7 +61,9 @@ async def disconnect(current_user: CurrentUser, db: AsyncSession = Depends(get_d
 async def connection_status(current_user: CurrentUser):
     return {
         "isConnected": bool(current_user.github_access_token),
+        "githubUserId": current_user.github_user_id,
         "username": current_user.github_username,
+        "avatarUrl": current_user.github_avatar_url,
         "connectedAt": None,
         "scopes": ["read:user", "repo"] if current_user.github_access_token else [],
     }
@@ -68,11 +74,17 @@ async def get_profile(
     username: Optional[str] = None,
     current_user: Annotated[Optional[User], Depends(get_current_user_optional)] = None,
 ):
-    target = username or (current_user.github_username if current_user else None)
-    if not target:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No GitHub username")
-    token = current_user.github_access_token if current_user and not username else None
-    user = await github_service.get_profile(target, token)
+    if username:
+        user = await github_service.get_profile(username)
+    elif current_user and current_user.github_access_token:
+        user = await github_service.get_authenticated_user(current_user.github_access_token)
+    elif current_user and current_user.github_username:
+        user = await github_service.get_profile(
+            current_user.github_username, current_user.github_access_token
+        )
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No GitHub account connected")
+
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found")
     return {"user": user}
@@ -85,16 +97,20 @@ async def get_repos(
     sort: str = Query("updated"),
     current_user: Annotated[Optional[User], Depends(get_current_user_optional)] = None,
 ):
-    if not current_user or not current_user.github_username:
+    if not current_user or not current_user.github_access_token:
         return {"repos": [], "total": 0, "hasMore": False}
+
+    profile = await github_service.get_authenticated_user(current_user.github_access_token)
+    total_repos = profile.get("publicRepos", 0) if profile else 0
+
     repos = await github_service.get_repos(
-        current_user.github_username,
+        current_user.github_username or (profile or {}).get("login", ""),
         current_user.github_access_token,
         page,
         limit,
         sort,
     )
-    return {"repos": repos, "total": len(repos), "hasMore": len(repos) >= limit}
+    return {"repos": repos, "total": total_repos or len(repos), "hasMore": len(repos) >= limit}
 
 
 @router.get("/repos/{owner}/{repo}")

@@ -5,15 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { 
-  Sparkles,
   ArrowUpRight, 
-  Home, 
-  Users, 
-  MessageSquare, 
-  Bell, 
-  Settings, 
-  Rocket, 
-  Briefcase, 
   Search, 
   Plus, 
   Heart, 
@@ -28,9 +20,10 @@ import {
   MoreHorizontal,
   PlusCircle,
   Building2,
-  Check
+  Check,
+  Rocket,
+  MessageSquare,
 } from 'lucide-react'
-import { LogoutButton } from '@/components/auth/logout-button'
 import { Button } from '@/components/ui/button'
 import { AppShell } from '@/components/layout/app-shell'
 import { Input } from '@/components/ui/input'
@@ -46,13 +39,6 @@ import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
 import { useConnections } from '@/lib/hooks/api/use-connections'
 import { formatTimeAgo, getInitials, roleLabel } from '@/lib/utils/format'
 import { toast } from 'sonner'
-
-const sidebarItems = [
-  { icon: Home, label: 'Dashboard', href: '/dashboard' },
-  { icon: Users, label: 'Network', href: '/network' },
-  { icon: Rocket, label: 'Ecosystem', href: '/ecosystem', active: true },
-  { icon: Briefcase, label: 'Sessions', href: '/sessions' },
-]
 
 export default function EcosystemPage() {
   useProtectedRoute()
@@ -326,83 +312,21 @@ export default function EcosystemPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex">
-      {/* Sidebar Layout */}
-      <motion.aside
-        className="fixed left-0 top-0 h-full w-64 bg-sidebar border-r border-sidebar-border z-40"
-        initial={{ x: -100, opacity: 0 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.3 }}
-      >
-        <div className="flex flex-col h-full p-4">
-          <Link href="/dashboard" className="flex items-center gap-2 mb-8 px-2">
-            <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center glow-primary">
-              <Sparkles className="w-6 h-6 text-primary-foreground" />
-            </div>
-            <span className="text-xl font-bold text-foreground">Nexus</span>
-          </Link>
-          <nav className="space-y-1 flex-1">
-            {sidebarItems.map((item) => (
-              <Link
-                key={item.label}
-                href={item.href}
-                className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all ${
-                  item.active
-                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                    : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
-                }`}
-              >
-                <item.icon className="w-5 h-5" />
-                <span className="font-medium">{item.label}</span>
-              </Link>
-            ))}
-          </nav>
-          <div className="border-t border-sidebar-border pt-4 mt-4">
-            <Link href="/profile" className="flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-sidebar-accent/50 transition-all">
-              <Avatar className="w-10 h-10">
-                <AvatarImage src={user?.avatar || ''} />
-                <AvatarFallback className="bg-primary/20 text-primary">
-                  {user ? getInitials(user.name) : 'U'}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <div className="font-medium text-foreground truncate">{user?.name || 'User'}</div>
-                <div className="text-xs text-muted-foreground truncate">
-                  {user ? roleLabel(user.role) : ''}
-                </div>
-              </div>
-            </Link>
-            <div className="flex items-center gap-2 mt-2">
-              <Link href="/profile/complete" className="flex-1">
-                <Button variant="ghost" size="sm" className="w-full justify-start gap-2">
-                  <Settings className="w-4 h-4" />
-                  Profile
-                </Button>
-              </Link>
-              <LogoutButton />
-            </div>
-          </div>
+    <AppShell
+      title="Ecosystem Feed"
+      header={
+        <div className="relative w-full max-w-xs sm:max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Search ecosystem updates..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 h-9 bg-secondary/50 border-border/50"
+          />
         </div>
-      </motion.aside>
-
-      {/* Main Container */}
-      <div className="flex-1 ml-64 flex flex-col min-h-screen">
-        <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-xl border-b border-border">
-          <div className="flex items-center justify-between px-6 py-4">
-            <h1 className="text-xl font-bold text-foreground">Ecosystem Feed</h1>
-            <div className="relative w-80">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="Search ecosystem updates..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 bg-secondary/50 border-border/50"
-              />
-            </div>
-          </div>
-        </header>
-
-        <div className="max-w-6xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1">
+      }
+    >
+      <div className="max-w-6xl w-full mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Feed Column */}
           <div className="lg:col-span-2 space-y-6">
             
@@ -721,7 +645,6 @@ export default function EcosystemPage() {
             </div>
           </div>
         </div>
-      </div>
 
       {/* Schedule Meeting Modal */}
       <AnimatePresence>
@@ -803,6 +726,6 @@ export default function EcosystemPage() {
           </div>
         )}
       </AnimatePresence>
-    </div>
+    </AppShell>
   )
 }

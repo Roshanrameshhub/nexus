@@ -1,6 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
 import { 
@@ -28,7 +30,8 @@ import { messagesAPI, uploadAPI, reactionsAPI } from '@/services/api'
 import { useAuthStore } from '@/lib/store'
 import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
 import {
-  mapConversation,
+  getLastMessagePreview,
+  mapConversations,
   mapMessage,
   type ConversationView,
   type MessageView,
@@ -37,8 +40,10 @@ import { getInitials, roleLabel } from '@/lib/utils/format'
 import { getMediaUrl } from '@/lib/config/api'
 import { toast } from 'sonner'
 
-export default function MessagesPage() {
+function MessagesPageContent() {
   useProtectedRoute()
+  const searchParams = useSearchParams()
+  const queryClient = useQueryClient()
   const user = useAuthStore((s) => s.user)
   const [conversations, setConversations] = useState<ConversationView[]>([])
   const [selectedConversation, setSelectedConversation] = useState<ConversationView | null>(null)
@@ -51,6 +56,7 @@ export default function MessagesPage() {
   const [messageReactions, setMessageReactions] = useState<Record<string, string[]>>({})
   const [isTyping, setIsTyping] = useState(false)
   const [typingUser, setTypingUser] = useState<string | null>(null)
+  const [uploadingAttachment, setUploadingAttachment] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -62,19 +68,32 @@ export default function MessagesPage() {
   }, [messages])
 
   const loadConversations = useCallback(async () => {
+    if (!user?.id) return
     try {
       const { data } = await messagesAPI.getConversations()
-      setConversations((data.conversations || []).map((c: any) => mapConversation(c, user?.id || '')))
+      setConversations(mapConversations(data.conversations || [], user.id))
       setLoading(false)
     } catch {
       setConversations([])
       setLoading(false)
+      toast.error('Could not load conversations')
     }
   }, [user?.id])
 
   useEffect(() => {
-    loadConversations()
-  }, [loadConversations])
+    if (!user?.id) return
+    void loadConversations()
+  }, [loadConversations, user?.id])
+
+  useEffect(() => {
+    const conversationId =
+      searchParams.get('conversation') ||
+      searchParams.get('c') ||
+      searchParams.get('convId')
+    if (!conversationId || conversations.length === 0) return
+    const match = conversations.find((c) => c.id === conversationId)
+    if (match) setSelectedConversation(match)
+  }, [searchParams, conversations])
 
   const loadMessages = useCallback(() => {
     if (!selectedConversation) return
@@ -101,8 +120,9 @@ export default function MessagesPage() {
       const mapped = mapMessage(payload as any, user.id)
       setMessages((prev) => (prev.some((m) => m.id === mapped.id) ? prev : [...prev, mapped]))
       void loadConversations()
+      void queryClient.invalidateQueries({ queryKey: ['conversations'] })
     },
-    [user?.id, loadConversations]
+    [user?.id, loadConversations, queryClient]
   )
 
   useMessageSocket(selectedConversation?.id ?? null, handleSocketMessage)
@@ -149,27 +169,45 @@ export default function MessagesPage() {
     }
   }
 
-  const handleAttach = async (file: File | undefined) => {
-    if (!file) return
-    if (file.type.startsWith('image/')) {
-      try {
-        const res = await uploadAPI.uploadImages([file])
-        const url = res.data.urls?.[0]
-        if (url) {
-          setMessageInput((prev) => `${prev}${prev ? '\n' : ''}${url}`)
-          toast.success('Image attached')
-        }
-      } catch {
-        toast.error('Image upload failed')
+  const sendAttachmentMessage = async (file: File) => {
+    if (!selectedConversation) return
+    setUploadingAttachment(true)
+    try {
+      const { data } = await uploadAPI.uploadFile(file)
+      const uploaded = data.file as {
+        file_name: string
+        file_url: string
+        file_size: number
+        mime_type: string
       }
-      return
+      const isImage = uploaded.mime_type.startsWith('image/')
+      await messagesAPI.sendMessage(selectedConversation.id, {
+        content: '',
+        message_type: isImage ? 'image' : 'file',
+        file_name: uploaded.file_name,
+        file_url: uploaded.file_url,
+        file_size: uploaded.file_size,
+        mime_type: uploaded.mime_type,
+      })
+      const { data: msgData } = await messagesAPI.getMessages(selectedConversation.id)
+      setMessages((msgData.messages || []).map((m: any) => mapMessage(m, user!.id)))
+      await loadConversations()
+      await queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      toast.success(isImage ? 'Image sent' : 'File sent')
+    } catch {
+      toast.error('Failed to send attachment')
+    } finally {
+      setUploadingAttachment(false)
     }
-    setMessageInput((prev) => `${prev}${prev ? '\n' : ''}[Attachment] ${file.name}`)
-    toast.success('Attachment added')
+  }
+
+  const handleAttach = async (file: File | undefined) => {
+    if (!file || !selectedConversation) return
+    await sendAttachmentMessage(file)
   }
 
   return (
-    <AppShell title="Messages">
+    <AppShell title="Messages" hideSearchAndTheme>
       <div className="max-w-6xl mx-auto flex flex-col h-[calc(100vh-120px)] overflow-hidden">
         {/* Conversations List */}
         {!selectedConversation ? (
@@ -229,7 +267,7 @@ export default function MessagesPage() {
                           <span className="text-xs text-muted-foreground shrink-0">{conv.time}</span>
                         </div>
                         <p className="text-sm text-muted-foreground truncate">
-                          {(conv.lastMessage as any)?.content || conv.lastMessage || "No messages yet"}
+                          {getLastMessagePreview(conv.lastMessage)}
                         </p>
                       </div>
                       {conv.unread > 0 && (
@@ -320,7 +358,21 @@ export default function MessagesPage() {
                             : 'bg-secondary text-foreground rounded-bl-md'
                         }`}
                       >
-                        <p className="text-sm whitespace-pre-line">{message.content}</p>
+                        {message.messageType === 'image' || message.messageType === 'file' ? (
+                          message.fileUrl ? (
+                            <MessageAttachment
+                              fileUrl={message.fileUrl}
+                              fileName={message.fileName}
+                              messageType={message.messageType}
+                              mimeType={message.mimeType}
+                              fileSize={message.fileSize}
+                            />
+                          ) : (
+                            <p className="text-sm">{message.content}</p>
+                          )
+                        ) : (
+                          <p className="text-sm whitespace-pre-line">{message.content}</p>
+                        )}
                         {(messageReactions[message.id] || []).length > 0 && (
                           <p className="text-xs mt-1 opacity-80">{messageReactions[message.id].join(' ')}</p>
                         )}
@@ -389,12 +441,16 @@ export default function MessagesPage() {
                   }}
                   className="resize-none min-h-[44px] max-h-[120px]"
                 />
-                <label className="cursor-pointer shrink-0">
+                <label className={`cursor-pointer shrink-0 ${uploadingAttachment ? 'opacity-50 pointer-events-none' : ''}`}>
                   <Paperclip className="w-5 h-5 text-muted-foreground hover:text-foreground transition-colors" />
                   <input
                     type="file"
                     className="hidden"
-                    onChange={(e) => void handleAttach(e.target.files?.[0])}
+                    accept=".pdf,.docx,.pptx,.xlsx,.txt,.png,.jpg,.jpeg,.gif,.zip,image/*"
+                    onChange={(e) => {
+                      void handleAttach(e.target.files?.[0])
+                      e.target.value = ''
+                    }}
                   />
                 </label>
                 <Button
@@ -431,5 +487,21 @@ export default function MessagesPage() {
         )}
       </div>
     </AppShell>
+  )
+}
+
+export default function MessagesPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell title="Messages" hideSearchAndTheme>
+          <div className="flex h-[60vh] items-center justify-center text-muted-foreground text-sm">
+            Loading messages…
+          </div>
+        </AppShell>
+      }
+    >
+      <MessagesPageContent />
+    </Suspense>
   )
 }

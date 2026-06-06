@@ -1,48 +1,49 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────────────────────────────────────
+export type IssueDifficulty = 'beginner' | 'intermediate' | 'advanced'
+export type IssueStatus = 'open' | 'claimed' | 'resolved'
 
 export interface CollaborationSubmission {
   id: string
+  title: string
   repoName: string
   repoUrl: string
   issueDescription: string
   tags: string[]
+  difficulty: IssueDifficulty
+  screenshots: string[]
   userId: string
   username: string
+  avatarUrl?: string
+  status: IssueStatus
+  claimerId?: string
+  claimerUsername?: string
   createdAt: string
 }
 
 interface PostBody {
+  title?: unknown
   repoName?: unknown
   repoUrl?: unknown
   issueDescription?: unknown
   tags?: unknown
+  difficulty?: unknown
+  screenshots?: unknown
   userId?: unknown
   username?: unknown
+  avatarUrl?: unknown
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// In-process store (survives hot-reload in dev; swap for DB in production)
-// ─────────────────────────────────────────────────────────────────────────────
 
 declare global {
   // eslint-disable-next-line no-var
   var __collaborationStore: CollaborationSubmission[] | undefined
 }
 
-// Persist across Next.js hot-module reloads in development
 if (!globalThis.__collaborationStore) {
   globalThis.__collaborationStore = []
 }
 
 const store: CollaborationSubmission[] = globalThis.__collaborationStore
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
 
 function generateId(): string {
   return `collab_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
@@ -67,10 +68,12 @@ function json<T>(data: T, status = 200): NextResponse {
   })
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/collaboration
-// Body: { repoName, repoUrl, issueDescription, tags, userId, username }
-// ─────────────────────────────────────────────────────────────────────────────
+function normalizeDifficulty(value: unknown): IssueDifficulty {
+  if (value === 'beginner' || value === 'intermediate' || value === 'advanced') {
+    return value
+  }
+  return 'intermediate'
+}
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -82,9 +85,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return json({ success: false, error: 'Invalid JSON body.' }, 400)
     }
 
-    const { repoName, repoUrl, issueDescription, tags, userId, username } = body
-
-    // ── Field validation ─────────────────────────────────────────────────────
+    const {
+      title,
+      repoName,
+      repoUrl,
+      issueDescription,
+      tags,
+      difficulty,
+      screenshots,
+      userId,
+      username,
+      avatarUrl,
+    } = body
 
     if (!repoName || typeof repoName !== 'string' || !repoName.trim()) {
       return json({ success: false, error: 'repoName is required and must be a non-empty string.' }, 422)
@@ -110,23 +122,38 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       ? (tags as unknown[])
           .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
           .map((t) => t.trim().toLowerCase())
-          .slice(0, 10) // cap at 10 tags
+          .slice(0, 10)
       : []
 
-    // ── Persist ──────────────────────────────────────────────────────────────
+    const normalizedScreenshots: string[] = Array.isArray(screenshots)
+      ? (screenshots as unknown[])
+          .filter((s): s is string => typeof s === 'string' && isValidUrl(s.trim()))
+          .map((s) => s.trim())
+          .slice(0, 5)
+      : []
+
+    const resolvedTitle =
+      typeof title === 'string' && title.trim()
+        ? title.trim()
+        : (issueDescription as string).trim().split('\n')[0].slice(0, 200)
 
     const submission: CollaborationSubmission = {
       id: generateId(),
-      repoName: (repoName as string).trim(),
-      repoUrl: (repoUrl as string).trim(),
-      issueDescription: (issueDescription as string).trim(),
+      title: resolvedTitle,
+      repoName: repoName.trim(),
+      repoUrl: repoUrl.trim(),
+      issueDescription: issueDescription.trim(),
       tags: normalizedTags,
-      userId: (userId as string).trim(),
-      username: (username as string).trim(),
+      difficulty: normalizeDifficulty(difficulty),
+      screenshots: normalizedScreenshots,
+      userId: userId.trim(),
+      username: username.trim(),
+      avatarUrl: typeof avatarUrl === 'string' && avatarUrl.trim() ? avatarUrl.trim() : undefined,
+      status: 'open',
       createdAt: new Date().toISOString(),
     }
 
-    store.unshift(submission) // newest first, keep in sync with GET sort
+    store.unshift(submission)
 
     return json(
       {
@@ -142,12 +169,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/collaboration
-// Returns all submissions sorted newest → oldest
-// Optional query params: ?userId=<id> to filter by a specific user
-// ─────────────────────────────────────────────────────────────────────────────
-
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const { searchParams } = new URL(request.url)
@@ -157,8 +178,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ? store.filter((s) => s.userId === filterUserId)
       : [...store]
 
-    // Ensure newest-first order (store.unshift keeps this invariant, but sort
-    // defensively in case items were inserted out of order in the future)
     results.sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     )

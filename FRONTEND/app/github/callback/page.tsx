@@ -35,7 +35,7 @@ function GitHubCallbackContent() {
       .then(() => {
         setStatus('success')
         setMessage('GitHub connected successfully. Redirecting...')
-        setTimeout(() => router.replace('/github'), 1200)
+        setTimeout(() => router.replace('/github?tab=account'), 1200)
       })
       .catch(() => {
         setStatus('error')

@@ -15,9 +15,15 @@ class DashboardStats(BaseModel):
     unread_notifications: int
 
 
+class CountryDiscoveryItem(BaseModel):
+    country: str
+    count: int
+
+
 class DashboardResponse(BaseModel):
     stats: DashboardStats
     recommendations: List[UserRecommendation]
     trending_posts: List[PostResponse]
     active_communities: List[CommunityResponse]
     startup_suggestions: List[StartupResponse]
+    country_discovery: List[CountryDiscoveryItem] = []

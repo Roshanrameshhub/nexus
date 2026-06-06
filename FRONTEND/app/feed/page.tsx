@@ -1031,9 +1031,9 @@ export default function FeedPage() {
                             {/* Media Grid */}
                             {post.media.length > 0 && (
                               <div className={`mb-4 grid gap-2 ${post.media.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
-                                {post.media.map((url) => (
+                                {post.media.map((url, mediaIndex) => (
                                   <PostMediaItem
-                                    key={url}
+                                    key={`${post.id}-${mediaIndex}-${url}`}
                                     url={url}
                                     onExpand={(src, type) => {
                                       if (type === 'video') setVideoModal({ open: true, src })

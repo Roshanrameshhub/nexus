@@ -54,7 +54,7 @@ export function GoogleSignInButton({ label = 'Continue with Google' }: GoogleSig
           data.access_token,
           data.refresh_token
         )
-        router.push('/dashboard')
+        router.push(u.country ? '/dashboard' : '/profile/complete')
       } catch (err) {
         if (axios.isAxiosError(err)) {
           const detail = err.response?.data?.detail

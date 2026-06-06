@@ -81,7 +81,9 @@ export interface GitHubActivity {
 
 export interface GitHubConnectionStatus {
   isConnected: boolean
+  githubUserId?: string
   username?: string
+  avatarUrl?: string
   connectedAt?: string
   scopes?: string[]
 }

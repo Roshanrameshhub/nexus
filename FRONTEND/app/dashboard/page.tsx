@@ -16,10 +16,14 @@ import { queryKeys } from '@/lib/query-keys'
 import { mapPostToFeedView, type FeedPostView } from '@/lib/mappers/posts'
 import { getInitials, formatTimeAgo } from '@/lib/utils/format'
 import type { ApiDashboard } from '@/lib/types/api'
+import { getLastMessagePreview, mapConversations } from '@/lib/mappers/messages'
+import { getMediaUrl } from '@/lib/config/api'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 
 export default function DashboardPage() {
   useProtectedRoute()
   const user = useAuthStore((s) => s.user)
+  const token = useAuthStore((s) => s.token)
 
   const dashboardQuery = useQuery({
     queryKey: queryKeys.dashboard.main,
@@ -27,14 +31,16 @@ export default function DashboardPage() {
       const { data } = await dashboardAPI.get()
       return data as ApiDashboard
     },
-    staleTime: 1000 * 60 * 5,
+    enabled: !!token,
+    staleTime: 1000 * 60 * 2,
+    refetchOnMount: 'always',
   })
 
   const topicsQuery = useQuery({
     queryKey: ['news', 'trending-topics'],
     queryFn: async () => {
       const { data } = await newsAPI.getTrendingTopics()
-      return data.topics
+      return data.topics ?? []
     },
     staleTime: 1000 * 60 * 5,
   })
@@ -43,7 +49,7 @@ export default function DashboardPage() {
     queryKey: ['news', 'tech', 'latest'],
     queryFn: async () => {
       const { data } = await newsAPI.getTrending(5)
-      return data.articles
+      return data.articles ?? []
     },
     staleTime: 1000 * 60 * 5,
   })
@@ -52,7 +58,7 @@ export default function DashboardPage() {
     queryKey: ['news', 'startups', 'latest'],
     queryFn: async () => {
       const { data } = await newsAPI.getStartupNews(5)
-      return data.articles
+      return data.articles ?? []
     },
     staleTime: 1000 * 60 * 5,
   })
@@ -61,7 +67,7 @@ export default function DashboardPage() {
     queryKey: ['notifications', 'preview'],
     queryFn: async () => {
       const { data } = await notificationsAPI.getAll()
-      return data.notifications as Array<Record<string, unknown>>
+      return (data.notifications ?? []) as Array<Record<string, unknown>>
     },
     staleTime: 1000 * 60 * 3,
   })
@@ -70,8 +76,9 @@ export default function DashboardPage() {
     queryKey: ['conversations'],
     queryFn: async () => {
       const { data } = await messagesAPI.getConversations()
-      return data.conversations as Array<Record<string, unknown>>
+      return mapConversations(data.conversations ?? [], user?.id ?? '')
     },
+    enabled: !!user?.id,
     staleTime: 1000 * 60 * 3,
   })
 
@@ -91,7 +98,7 @@ export default function DashboardPage() {
     queryKey: ['connections', 'received'],
     queryFn: async () => {
       const { data } = await connectionsAPI.received()
-      return data.requests as Array<Record<string, unknown>>
+      return (data.connections ?? []) as Array<Record<string, unknown>>
     },
     staleTime: 1000 * 60 * 3,
   })
@@ -106,19 +113,18 @@ export default function DashboardPage() {
   const connectionRequests = connectionRequestsQuery.data || []
   
   const feed = dashboard?.trending_posts?.map(mapPostToFeedView) ?? []
-
-  // Extract unique countries from recommendations
-  const countries = useMemo(() => {
-    if (!dashboard?.recommendations) return []
-    const all = dashboard.recommendations.map(r => r.country).filter(Boolean) as string[]
-    return Array.from(new Set(all)).slice(0, 5)
-  }, [dashboard])
+  const countryDiscovery = dashboard?.country_discovery ?? []
 
   const profileProgress = useMemo(() => {
     if (!user) return 0
     const completed = [user.bio, user.skills?.length, user.avatar, user.email].filter(Boolean).length
     return Math.min(100, Math.round((completed / 4) * 100))
   }, [user])
+
+  const unreadConversations = useMemo(
+    () => conversations.filter((conv) => conv.unread > 0),
+    [conversations]
+  )
 
   return (
     <AppShell title="Dashboard">
@@ -323,23 +329,38 @@ export default function DashboardPage() {
               </Button>
             </div>
             <div className="space-y-3 flex-1">
-              {conversations.slice(0, 4).map((conv: any) => {
-                const other = conv.other_participant || conv.participants?.[0] || {}
-                const lastMsg = conv.last_message || {}
-                return (
-                  <div key={conv.id} className="p-3 rounded-lg bg-secondary/20 flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center shrink-0 text-xs text-accent">
-                      {getInitials(other.name || 'U')}
-                    </div>
+              {conversationsQuery.isLoading && (
+                <p className="text-sm text-muted-foreground py-2">Loading messages...</p>
+              )}
+              {!conversationsQuery.isLoading &&
+                unreadConversations.slice(0, 4).map((conv) => (
+                  <Link
+                    key={conv.id}
+                    href={`/messages?conversation=${conv.id}`}
+                    className="p-3 rounded-lg bg-secondary/20 flex items-center gap-3 hover:bg-secondary/30 transition-colors"
+                  >
+                    <Avatar className="w-8 h-8 shrink-0">
+                      <AvatarImage src={getMediaUrl(conv.user.avatar)} />
+                      <AvatarFallback className="bg-accent/20 text-accent text-xs">
+                        {getInitials(conv.user.name)}
+                      </AvatarFallback>
+                    </Avatar>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">{other.name || 'Unknown'}</p>
-                      <p className="text-xs text-muted-foreground truncate">{lastMsg.content || 'No messages yet'}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium text-foreground truncate">{conv.user.name}</p>
+                        <span className="text-[10px] text-muted-foreground shrink-0">{conv.time}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {getLastMessagePreview(conv.lastMessage)}
+                      </p>
                     </div>
-                  </div>
-                )
-              })}
-              {conversations.length === 0 && (
-                <p className="text-sm text-muted-foreground py-2">No conversations yet.</p>
+                    <span className="min-w-[18px] h-4.5 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center px-1 shrink-0">
+                      {conv.unread > 9 ? '9+' : conv.unread}
+                    </span>
+                  </Link>
+                ))}
+              {!conversationsQuery.isLoading && unreadConversations.length === 0 && (
+                <p className="text-sm text-muted-foreground py-2">No unread messages</p>
               )}
             </div>
           </div>
@@ -427,15 +448,28 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="space-y-3">
-              {countries.length > 0 ? (
-                countries.map(country => (
-                  <Link key={country} href={`/network?country=${encodeURIComponent(country)}`} className="flex items-center justify-between p-2 rounded hover:bg-secondary/20 transition-colors">
-                    <span className="text-sm font-medium">{country}</span>
-                    <span className="text-xs text-muted-foreground">Explore &rarr;</span>
+              {dashboardQuery.isLoading && (
+                <p className="text-sm text-muted-foreground">Loading countries...</p>
+              )}
+              {!dashboardQuery.isLoading && countryDiscovery.length > 0 && (
+                countryDiscovery.map(({ country, count }) => (
+                  <Link
+                    key={country}
+                    href={`/network?country=${encodeURIComponent(country)}`}
+                    className="flex items-center justify-between p-2 rounded hover:bg-secondary/20 transition-colors"
+                  >
+                    <span className="text-sm font-medium">
+                      {country} <span className="text-muted-foreground">({count})</span>
+                    </span>
+                    <span className="text-xs text-primary font-medium">Explore &rarr;</span>
                   </Link>
                 ))
-              ) : (
-                <p className="text-sm text-muted-foreground">No country data available from recommendations.</p>
+              )}
+              {!dashboardQuery.isLoading && !dashboardQuery.isError && countryDiscovery.length === 0 && (
+                <p className="text-sm text-muted-foreground">No country data yet. Users appear here once profiles include a location.</p>
+              )}
+              {dashboardQuery.isError && (
+                <p className="text-sm text-muted-foreground">Could not load country data. Refresh the page to try again.</p>
               )}
             </div>
           </div>

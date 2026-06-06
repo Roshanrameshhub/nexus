@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     GOOGLE_REFRESH_TOKEN: str = ""
     GITHUB_CLIENT_ID: str = ""
     GITHUB_CLIENT_SECRET: str = ""
-    GITHUB_REDIRECT_URI: str = "http://localhost:8000/api/github/oauth/callback"
+    GITHUB_REDIRECT_URI: str = "http://localhost:3000/github/callback"
 
     # Email
     RESEND_API_KEY: str = ""

@@ -39,6 +39,12 @@ import { useAuthStore } from '@/lib/store'
 import { getInitials, roleLabel, formatTimeAgo } from '@/lib/utils/format'
 import { notificationsAPI, messagesAPI } from '@/services/api'
 import { cn } from '@/lib/utils'
+import {
+  getLastMessagePreview,
+  mapConversations,
+  type ConversationView,
+} from '@/lib/mappers/messages'
+import { getMediaUrl } from '@/lib/config/api'
 
 // ─── Nav Items ────────────────────────────────────────────────────────────────
 
@@ -56,19 +62,36 @@ interface AppShellProps {
   children: React.ReactNode
   title?: string
   header?: React.ReactNode
+  mainClassName?: string
+  hideSearchAndTheme?: boolean
 }
 
-interface LastMessage {
-  created_at?: string;
-  content?: string;
-}
+function MobileNav() {
+  const pathname = usePathname()
 
-interface Conversation {
-  id: string;
-  other_participant?: any;
-  participants?: any[];
-  last_message?: LastMessage;
-  unread_count?: number;
+  return (
+    <nav
+      className="lg:hidden fixed bottom-0 inset-x-0 z-50 flex items-center justify-around border-t border-sidebar-border bg-sidebar/95 backdrop-blur-md"
+      style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
+    >
+      {NAV_ITEMS.map(({ icon: Icon, label, href }) => {
+        const active = pathname === href || pathname.startsWith(`${href}/`)
+        return (
+          <Link
+            key={href}
+            href={href}
+            className={cn(
+              'flex flex-col items-center gap-0.5 py-2 px-1 min-w-0 flex-1 text-[10px] font-medium transition-colors',
+              active ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <Icon className="w-5 h-5 shrink-0" />
+            <span className="truncate">{label}</span>
+          </Link>
+        )
+      })}
+    </nav>
+  )
 }
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
@@ -163,6 +186,7 @@ interface TopbarProps {
   onOpenMessages: () => void
   unreadNotifications: number
   unreadMessages: number
+  hideSearchAndTheme?: boolean
 }
 
 function Topbar({
@@ -172,6 +196,7 @@ function Topbar({
   onOpenMessages,
   unreadNotifications,
   unreadMessages,
+  hideSearchAndTheme = false,
 }: TopbarProps) {
   const { theme, setTheme } = useTheme()
   const [searchOpen, setSearchOpen] = useState(false)
@@ -192,52 +217,56 @@ function Topbar({
         ) : null}
       </div>
 
-      {/* Global search */}
-      <div className="relative hidden sm:flex items-center">
-        <AnimatePresence>
-          {searchOpen ? (
-            <motion.div
-              key="search-input"
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 220, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="overflow-hidden"
-            >
-              <input
-                ref={searchRef}
-                type="text"
-                placeholder="Search Nexus..."
-                onBlur={() => setSearchOpen(false)}
-                className="w-full h-8 rounded-lg bg-muted border border-border px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-            </motion.div>
-          ) : (
-            <Button
-              key="search-btn"
-              variant="ghost"
-              size="sm"
-              className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
-              onClick={() => setSearchOpen(true)}
-              aria-label="Open search"
-            >
-              <Search className="w-4 h-4" />
-            </Button>
-          )}
-        </AnimatePresence>
-      </div>
+      {/* Global search — hidden on Messages page */}
+      {!hideSearchAndTheme && (
+        <div className="relative hidden sm:flex items-center">
+          <AnimatePresence>
+            {searchOpen ? (
+              <motion.div
+                key="search-input"
+                initial={{ width: 0, opacity: 0 }}
+                animate={{ width: 220, opacity: 1 }}
+                exit={{ width: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden"
+              >
+                <input
+                  ref={searchRef}
+                  type="text"
+                  placeholder="Search Nexus..."
+                  onBlur={() => setSearchOpen(false)}
+                  className="w-full h-8 rounded-lg bg-muted border border-border px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </motion.div>
+            ) : (
+              <Button
+                key="search-btn"
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                onClick={() => setSearchOpen(true)}
+                aria-label="Open search"
+              >
+                <Search className="w-4 h-4" />
+              </Button>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
 
-      {/* Theme toggle */}
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
-        onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-        aria-label="Toggle theme"
-      >
-        <Sun className="w-4 h-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0 absolute" />
-        <Moon className="w-4 h-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-      </Button>
+      {/* Theme toggle — hidden on Messages page */}
+      {!hideSearchAndTheme && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          aria-label="Toggle theme"
+        >
+          <Sun className="w-4 h-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0 absolute" />
+          <Moon className="w-4 h-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+        </Button>
+      )}
 
       {/* Messages trigger */}
       <Button
@@ -398,13 +427,14 @@ function NotificationsDrawer({ open, onClose }: { open: boolean; onClose: () => 
 // ─── Messages Drawer ──────────────────────────────────────────────────────────
 
 function MessagesDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { data, isLoading } = useQuery<Array<Conversation>>({
+  const user = useAuthStore((s) => s.user)
+  const { data, isLoading } = useQuery<ConversationView[]>({
     queryKey: ['conversations'],
     queryFn: async () => {
       const { data } = await messagesAPI.getConversations()
-      return (data.conversations ?? data ?? [])
+      return mapConversations(data.conversations ?? [], user?.id ?? '')
     },
-    enabled: open,
+    enabled: open && !!user?.id,
     staleTime: 1000 * 30,
   })
 
@@ -444,7 +474,7 @@ function MessagesDrawer({ open, onClose }: { open: boolean; onClose: () => void 
                   <MessageSquare className="w-8 h-8 text-muted-foreground/40 mb-3" />
                   <p className="text-sm font-medium text-muted-foreground">No conversations yet</p>
                   <p className="text-xs text-muted-foreground/60 mt-1">
-                    Connect with people to start messaging
+                    Send a message to start a conversation
                   </p>
                   <Link href="/messages" onClick={onClose}>
                     <Button size="sm" variant="outline" className="mt-4 text-xs">
@@ -454,48 +484,44 @@ function MessagesDrawer({ open, onClose }: { open: boolean; onClose: () => void 
                 </div>
               )}
 
-              {conversations.map((conv) => {
-                const other = (conv.other_participant ?? conv.participants?.[0] ?? {}) as any
-                const name = (other.name ?? 'Unknown') as string
-                const lastMsg = (conv.last_message ?? {}) as LastMessage;
-                const unread = (conv.unread_count as number) ?? 0
-
-                return (
-                  <Link
-                    key={conv.id as string}
-                    href={`/messages?conversation=${conv.id}`}
-                    onClick={onClose}
-                    className="flex items-center gap-3 rounded-lg p-3 hover:bg-muted/50 transition-colors"
-                  >
-                    <Avatar className="w-9 h-9 shrink-0">
-                      <AvatarImage src={other.avatar as string} />
-                      <AvatarFallback className="bg-primary/20 text-primary text-xs font-semibold">
-                        {getInitials(name)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className={cn('text-sm truncate', unread > 0 ? 'font-semibold text-foreground' : 'font-medium text-foreground')}>
-                          {name}
-                        </p>
-                        {lastMsg.created_at && (
-                          <p className="text-[10px] text-muted-foreground shrink-0">
-                            {formatTimeAgo(lastMsg.created_at as string)}
-                          </p>
+              {conversations.map((conv) => (
+                <Link
+                  key={conv.id}
+                  href={`/messages?conversation=${conv.id}`}
+                  onClick={onClose}
+                  className="flex items-center gap-3 rounded-lg p-3 hover:bg-muted/50 transition-colors"
+                >
+                  <Avatar className="w-9 h-9 shrink-0">
+                    <AvatarImage src={getMediaUrl(conv.user.avatar)} />
+                    <AvatarFallback className="bg-primary/20 text-primary text-xs font-semibold">
+                      {getInitials(conv.user.name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p
+                        className={cn(
+                          'text-sm truncate',
+                          conv.unread > 0 ? 'font-semibold text-foreground' : 'font-medium text-foreground'
                         )}
-                      </div>
-                      <p className="text-xs text-muted-foreground truncate mt-0.5">
-                        {(lastMsg.content as string) || 'No messages yet'}
+                      >
+                        {conv.user.name}
                       </p>
+                      {conv.time && (
+                        <p className="text-[10px] text-muted-foreground shrink-0">{conv.time}</p>
+                      )}
                     </div>
-                    {unread > 0 && (
-                      <span className="min-w-[18px] h-4.5 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center px-1 shrink-0">
-                        {unread > 9 ? '9+' : unread}
-                      </span>
-                    )}
-                  </Link>
-                )
-              })}
+                    <p className="text-xs text-muted-foreground truncate mt-0.5">
+                      {getLastMessagePreview(conv.lastMessage)}
+                    </p>
+                  </div>
+                  {conv.unread > 0 && (
+                    <span className="min-w-[18px] h-4.5 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center px-1 shrink-0">
+                      {conv.unread > 9 ? '9+' : conv.unread}
+                    </span>
+                  )}
+                </Link>
+              ))}
             </div>
           </div>
         </div>
@@ -506,7 +532,8 @@ function MessagesDrawer({ open, onClose }: { open: boolean; onClose: () => void 
 
 // ─── AppShell (root export) ───────────────────────────────────────────────────
 
-export function AppShell({ children, title, header }: AppShellProps) {
+export function AppShell({ children, title, header, mainClassName, hideSearchAndTheme }: AppShellProps) {
+  const user = useAuthStore((s) => s.user)
   const [notifOpen, setNotifOpen] = useState(false)
   const [msgOpen, setMsgOpen] = useState(false)
 
@@ -521,21 +548,19 @@ export function AppShell({ children, title, header }: AppShellProps) {
     refetchInterval: 1000 * 60 * 2,
   })
 
-  const { data: convData } = useQuery<Array<Conversation>>({
+  const { data: convData } = useQuery<ConversationView[]>({
     queryKey: ['conversations'],
     queryFn: async () => {
       const { data } = await messagesAPI.getConversations()
-      return (data.conversations ?? data ?? []) as Array<any>
+      return mapConversations(data.conversations ?? [], user?.id ?? '')
     },
+    enabled: !!user?.id,
     staleTime: 1000 * 30,
     refetchInterval: 1000 * 60,
   })
 
   const unreadNotifications = (notifData ?? []).filter((n) => !n.read_status).length
-  const unreadMessages = (convData ?? []).reduce(
-    (sum, c) => sum + ((c.unread_count as number) ?? 0),
-    0,
-  )
+  const unreadMessages = (convData ?? []).reduce((sum, c) => sum + (c.unread ?? 0), 0)
 
   return (
     <div className="min-h-screen bg-background flex">
@@ -552,13 +577,16 @@ export function AppShell({ children, title, header }: AppShellProps) {
           onOpenMessages={() => setMsgOpen(true)}
           unreadNotifications={unreadNotifications}
           unreadMessages={unreadMessages}
+          hideSearchAndTheme={hideSearchAndTheme}
         />
 
         {/* Page body */}
-        <main className="flex-1 p-6">
+        <main className={cn('flex-1 p-6 pb-24 lg:pb-6', mainClassName)}>
           {children}
         </main>
       </div>
+
+      <MobileNav />
 
       {/* Slide-over drawers */}
       <NotificationsDrawer open={notifOpen} onClose={() => setNotifOpen(false)} />

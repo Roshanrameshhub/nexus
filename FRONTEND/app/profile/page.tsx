@@ -4,52 +4,42 @@ import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { 
-  Sparkles, 
-  Home,
-  Users,
-  MessageSquare,
-  Bell,
-  Settings,
-  Rocket,
-  Briefcase,
   MapPin,
   Calendar,
   Link2,
   Github,
-  Twitter,
   Linkedin,
   ExternalLink,
   Edit,
   Share2,
   MoreHorizontal,
-  Award,
   Code,
-  Zap,
-  Target,
   Heart,
   MessageCircle,
-  Bookmark
+  Bookmark,
+  Briefcase,
 } from 'lucide-react'
-import { LogoutButton } from '@/components/auth/logout-button'
 import { Button } from '@/components/ui/button'
+import { AppShell } from '@/components/layout/app-shell'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { authAPI, dashboardAPI, postsAPI, startupsAPI } from '@/services/api'
-import type { ApiStartup } from '@/lib/types/api'
+import { authAPI, dashboardAPI, postsAPI } from '@/services/api'
+import type { ApiUser } from '@/lib/types/api'
 import { useAuthStore } from '@/lib/store'
 import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
 import { mapPostToFeedView, type FeedPostView } from '@/lib/mappers/posts'
 import { getInitials, roleLabel } from '@/lib/utils/format'
-import type { ApiUser } from '@/lib/types/api'
-
-const sidebarItems = [
-  { icon: Home, label: 'Dashboard', href: '/dashboard' },
-  { icon: Users, label: 'Network', href: '/feed' },
-  { icon: MessageSquare, label: 'Messages', href: '/messages' },
-  { icon: Bell, label: 'Notifications', href: '/notifications' },
-  { icon: Rocket, label: 'Ecosystem', href: '/ecosystem' },
-  { icon: Briefcase, label: 'Sessions', href: '/sessions' },
-]
+import { toast } from 'sonner'
+import {
+  getOrganizationSectionTitle,
+  getProfileHeadline,
+  getPublicProfileUrl,
+  getRoleDetailRows,
+  getSocialLinks,
+  parseExperience,
+  formatExperiencePeriod,
+  type ProfileRoleDetails,
+} from './utils'
 
 export default function ProfilePage() {
   useProtectedRoute()
@@ -59,9 +49,10 @@ export default function ProfilePage() {
   const [profileStats, setProfileStats] = useState({
     connections: 0,
     posts: 0,
-    views: 0,
+    communities: 0,
+    reactions: 0,
+    comments: 0,
   })
-  const [myStartups, setMyStartups] = useState<ApiStartup[]>([])
 
   useEffect(() => {
     authAPI.me().then((res) => setProfile(res.data.user)).catch(() => setProfile(null))
@@ -71,10 +62,12 @@ export default function ProfilePage() {
         setProfileStats({
           connections: res.data.stats.connections_count,
           posts: res.data.stats.posts_count,
-          views: res.data.stats.unread_notifications,
+          communities: res.data.stats.communities_count,
+          reactions: 0,
+          comments: 0,
         })
       })
-      .catch(() => setProfileStats({ connections: 0, posts: 0, views: 0 }))
+      .catch(() => setProfileStats({ connections: 0, posts: 0, communities: 0, reactions: 0, comments: 0 }))
     postsAPI
       .getFeed(1, 50)
       .then((res) => {
@@ -84,76 +77,67 @@ export default function ProfilePage() {
           ? raw.filter((p: { author: { id: string } }) => String(p.author.id) === String(uid))
           : raw
         setUserPosts(mine.map(mapPostToFeedView))
+        const reactions = mine.reduce(
+          (sum: number, p: { likes_count?: number }) => sum + (p.likes_count || 0),
+          0
+        )
+        const comments = mine.reduce(
+          (sum: number, p: { comments_count?: number }) => sum + (p.comments_count || 0),
+          0
+        )
+        setProfileStats((prev) => ({ ...prev, reactions, comments }))
       })
       .catch(() => setUserPosts([]))
   }, [storeUser?.id])
 
   const displayName = profile?.name || storeUser?.name || 'User'
   const displayRole = profile ? roleLabel(profile.role) : storeUser ? roleLabel(storeUser.role) : ''
-  const skills = (profile?.skills || storeUser?.skills || []).map((name, i) => ({
-    name,
-    level: Math.max(60, 95 - i * 5),
-  }))
+  const headline = profile ? getProfileHeadline(profile) : ''
+  const userRole = profile?.role || storeUser?.role || ''
+  const orgSectionTitle = getOrganizationSectionTitle(userRole)
+  const roleDetailRows = profile ? getRoleDetailRows(profile) : []
+  const experience = profile
+    ? parseExperience(profile.role_details as ProfileRoleDetails | null | undefined)
+    : []
+  const social = profile ? getSocialLinks(profile) : { github: '', linkedin: '', website: '' }
+  const bannerUrl = String((profile?.role_details as Record<string, unknown> | undefined)?.banner_url || '')
+  const skills = profile?.skills || storeUser?.skills || []
 
-  const achievements: { icon: typeof Award; title: string; description: string; color: string }[] = []
-  const experience: {
-    company: string
-    role: string
-    period: string
-    description: string
-    current: boolean
-  }[] = []
+  const handleShareProfile = async () => {
+    const uid = profile?.id || storeUser?.id
+    if (!uid) return
+    const url = getPublicProfileUrl(String(uid))
+    try {
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        await navigator.share({ title: `${displayName} on Nexus`, url })
+        return
+      }
+    } catch {
+      /* fall through to copy */
+    }
+    try {
+      await navigator.clipboard.writeText(url)
+      toast.success('Profile link copied to clipboard')
+    } catch {
+      toast.error('Could not copy profile link')
+    }
+  }
+
+  const handleOpenPublicProfile = () => {
+    const uid = profile?.id || storeUser?.id
+    if (!uid) return
+    window.open(getPublicProfileUrl(String(uid)), '_blank', 'noopener,noreferrer')
+  }
 
   return (
-    <div className="min-h-screen bg-background flex">
-      {/* Sidebar */}
-      <motion.aside 
-        className="fixed left-0 top-0 h-full w-64 bg-sidebar border-r border-sidebar-border z-40"
-        initial={{ x: -100, opacity: 0 }}
-        animate={{ x: 0, opacity: 1 }}
-        transition={{ duration: 0.3 }}
-      >
-        <div className="flex flex-col h-full p-4">
-          <Link href="/dashboard" className="flex items-center gap-2 mb-8 px-2">
-            <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center glow-primary">
-              <Sparkles className="w-6 h-6 text-primary-foreground" />
-            </div>
-            <span className="text-xl font-bold text-foreground">Nexus</span>
-          </Link>
-          
-          <nav className="space-y-1 flex-1">
-            {sidebarItems.map((item) => (
-              <Link
-                key={item.label}
-                href={item.href}
-                className="flex items-center gap-3 px-3 py-3 rounded-xl text-sidebar-foreground hover:bg-sidebar-accent/50 transition-all"
-              >
-                <item.icon className="w-5 h-5" />
-                <span className="font-medium">{item.label}</span>
-              </Link>
-            ))}
-          </nav>
-          
-          <div className="border-t border-sidebar-border pt-4 mt-4">
-            <div className="flex items-center gap-2">
-              <Link href="/settings" className="flex-1">
-                <Button variant="ghost" size="sm" className="w-full justify-start gap-2">
-                  <Settings className="w-4 h-4" />
-                  Settings
-                </Button>
-              </Link>
-              <LogoutButton />
-            </div>
-          </div>
-        </div>
-      </motion.aside>
-      
-      {/* Main Content */}
-      <main className="flex-1 ml-64">
-        {/* Profile Header */}
-        <div className="relative">
+    <AppShell title="Profile" mainClassName="p-0">
+      {/* Profile Header */}
+      <div className="relative">
           {/* Cover Image */}
-          <div className="h-48 bg-gradient-to-r from-primary/30 via-accent/20 to-glow-lavender/30 relative">
+          <div
+            className="h-48 bg-gradient-to-r from-primary/30 via-accent/20 to-glow-lavender/30 relative bg-cover bg-center"
+            style={bannerUrl ? { backgroundImage: `url(${bannerUrl})` } : undefined}
+          >
             <div className="absolute inset-0 mesh-gradient opacity-50" />
           </div>
           
@@ -167,7 +151,7 @@ export default function ProfilePage() {
                   transition={{ duration: 0.3 }}
                 >
                   <Avatar className="w-32 h-32 border-4 border-background">
-                    <AvatarImage src="" />
+                    <AvatarImage src={profile?.avatar || storeUser?.avatar || ''} />
                     <AvatarFallback className="bg-primary text-primary-foreground text-4xl">{getInitials(displayName)}</AvatarFallback>
                   </Avatar>
                 </motion.div>
@@ -181,12 +165,21 @@ export default function ProfilePage() {
                           <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                       </div>
-                      <p className="text-muted-foreground">{displayRole}</p>
+                      <p className="text-muted-foreground">{headline || displayRole}</p>
+                      {profile?.country && (
+                        <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
+                          <MapPin className="w-3.5 h-3.5" /> {profile.country}
+                        </p>
+                      )}
                     </div>
                     <div className="flex items-center gap-3">
-                      <Button variant="outline" size="sm">
+                      <Button variant="outline" size="sm" onClick={() => void handleShareProfile()}>
                         <Share2 className="w-4 h-4 mr-2" />
                         Share
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={handleOpenPublicProfile}>
+                        <ExternalLink className="w-4 h-4 mr-2" />
+                        View Public
                       </Button>
                       <Link href="/profile/complete">
                         <Button className="glow-primary">
@@ -236,15 +229,27 @@ export default function ProfilePage() {
                 </div>
                 
                 <div className="flex items-center gap-3 mt-4 pt-4 border-t border-border/50">
-                  <Button variant="ghost" size="sm" className="p-2">
-                    <Github className="w-5 h-5 text-muted-foreground hover:text-foreground" />
-                  </Button>
-                  <Button variant="ghost" size="sm" className="p-2">
-                    <Twitter className="w-5 h-5 text-muted-foreground hover:text-foreground" />
-                  </Button>
-                  <Button variant="ghost" size="sm" className="p-2">
-                    <Linkedin className="w-5 h-5 text-muted-foreground hover:text-foreground" />
-                  </Button>
+                  {social.github && (
+                    <a href={social.github} target="_blank" rel="noopener noreferrer">
+                      <Button variant="ghost" size="sm" className="p-2">
+                        <Github className="w-5 h-5 text-muted-foreground hover:text-foreground" />
+                      </Button>
+                    </a>
+                  )}
+                  {social.linkedin && (
+                    <a href={social.linkedin} target="_blank" rel="noopener noreferrer">
+                      <Button variant="ghost" size="sm" className="p-2">
+                        <Linkedin className="w-5 h-5 text-muted-foreground hover:text-foreground" />
+                      </Button>
+                    </a>
+                  )}
+                  {social.website && (
+                    <a href={social.website} target="_blank" rel="noopener noreferrer">
+                      <Button variant="ghost" size="sm" className="p-2">
+                        <ExternalLink className="w-5 h-5 text-muted-foreground hover:text-foreground" />
+                      </Button>
+                    </a>
+                  )}
                 </div>
               </motion.div>
               
@@ -265,8 +270,8 @@ export default function ProfilePage() {
                     <div className="text-xs text-muted-foreground">Posts</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-foreground">{profileStats.views}</div>
-                    <div className="text-xs text-muted-foreground">Notifications</div>
+                    <div className="text-2xl font-bold text-foreground">{profileStats.communities}</div>
+                    <div className="text-xs text-muted-foreground">Communities</div>
                   </div>
                 </div>
               </motion.div>
@@ -282,49 +287,14 @@ export default function ProfilePage() {
                   <Code className="w-5 h-5 text-primary" />
                   <h3 className="font-semibold text-foreground">Skills</h3>
                 </div>
-                <div className="space-y-3">
-                  {skills.map((skill) => (
-                    <div key={skill.name}>
-                      <div className="flex items-center justify-between text-sm mb-1">
-                        <span className="text-foreground">{skill.name}</span>
-                        <span className="text-muted-foreground">{skill.level}%</span>
-                      </div>
-                      <div className="h-2 bg-secondary rounded-full overflow-hidden">
-                        <motion.div 
-                          className="h-full bg-gradient-to-r from-primary to-accent rounded-full"
-                          initial={{ width: 0 }}
-                          animate={{ width: `${skill.level}%` }}
-                          transition={{ duration: 1, delay: 0.5 }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
-              
-              {/* Achievements */}
-              <motion.div 
-                className="glass-card p-5"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.3 }}
-              >
-                <div className="flex items-center gap-2 mb-4">
-                  <Award className="w-5 h-5 text-accent" />
-                  <h3 className="font-semibold text-foreground">Achievements</h3>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  {achievements.length === 0 && (
-                    <p className="text-sm text-muted-foreground col-span-2">No achievements yet.</p>
+                <div className="flex flex-wrap gap-2">
+                  {skills.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No skills listed yet.</p>
                   )}
-                  {achievements.map((achievement) => (
-                    <div 
-                      key={achievement.title}
-                      className="p-3 rounded-lg bg-secondary/50 text-center hover:bg-secondary transition-colors cursor-pointer"
-                    >
-                      <achievement.icon className={`w-6 h-6 text-${achievement.color} mx-auto mb-2`} />
-                      <div className="text-xs font-medium text-foreground">{achievement.title}</div>
-                    </div>
+                  {skills.map((skill) => (
+                    <span key={skill} className="px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
+                      {skill}
+                    </span>
                   ))}
                 </div>
               </motion.div>
@@ -333,10 +303,11 @@ export default function ProfilePage() {
             {/* Right Column - Tabs */}
             <div className="lg:col-span-2">
               <Tabs defaultValue="posts" className="w-full">
-                <TabsList className="grid w-full grid-cols-3 mb-6 bg-secondary/50">
+                <TabsList className="grid w-full grid-cols-4 mb-6 bg-secondary/50">
                   <TabsTrigger value="posts">Posts</TabsTrigger>
                   <TabsTrigger value="experience">Experience</TabsTrigger>
-                  <TabsTrigger value="startups">Ventures</TabsTrigger>
+                  <TabsTrigger value="organization">{orgSectionTitle}</TabsTrigger>
+                  <TabsTrigger value="activity">Activity</TabsTrigger>
                 </TabsList>
                 
                 <TabsContent value="posts" className="space-y-4">
@@ -393,12 +364,18 @@ export default function ProfilePage() {
                 </TabsContent>
                 
                 <TabsContent value="experience" className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-muted-foreground">Professional experience</p>
+                    <Link href="/profile/complete">
+                      <Button variant="outline" size="sm">Edit Experience</Button>
+                    </Link>
+                  </div>
                   {experience.length === 0 && (
                     <p className="text-sm text-muted-foreground">No experience added yet.</p>
                   )}
                   {experience.map((exp, index) => (
                     <motion.div
-                      key={exp.company}
+                      key={exp.id}
                       className="glass-card p-5"
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
@@ -412,71 +389,68 @@ export default function ProfilePage() {
                         </div>
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
-                            <h4 className="font-semibold text-foreground">{exp.role}</h4>
+                            <h4 className="font-semibold text-foreground">{exp.position}</h4>
                             {exp.current && (
                               <span className="px-2 py-0.5 rounded-full bg-primary/20 text-primary text-xs">
                                 Current
                               </span>
                             )}
                           </div>
-                          <p className="text-sm text-muted-foreground mb-2">{exp.company} · {exp.period}</p>
-                          <p className="text-sm text-muted-foreground">{exp.description}</p>
+                          <p className="text-sm text-muted-foreground mb-2">{exp.company} · {formatExperiencePeriod(exp)}</p>
+                          {exp.description && (
+                            <p className="text-sm text-muted-foreground">{exp.description}</p>
+                          )}
                         </div>
-                        <Button variant="ghost" size="sm">
-                          <ExternalLink className="w-4 h-4" />
-                        </Button>
                       </div>
                     </motion.div>
                   ))}
                 </TabsContent>
-                
-                <TabsContent value="startups" className="space-y-4">
-                  {myStartups.length === 0 && (
-                    <p className="text-sm text-muted-foreground">No ventures listed yet.</p>
+
+                <TabsContent value="organization" className="space-y-4">
+                  {roleDetailRows.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No {orgSectionTitle.toLowerCase()} added yet.</p>
                   )}
-                  {myStartups.map((startup, index) => (
-                  <motion.div
-                    key={startup.id}
-                    className="glass-card p-5"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5, delay: index * 0.05 }}
-                  >
-                    <div className="flex items-start gap-4">
-                      <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
-                        <Rocket className="w-8 h-8 text-primary" />
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h4 className="font-semibold text-foreground">{startup.name}</h4>
-                          {startup.stage && (
-                          <span className="px-2 py-0.5 rounded-full bg-primary/20 text-primary text-xs">
-                            {startup.stage}
-                          </span>
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground mb-2">{startup.industry || 'Startup'}</p>
-                        <p className="text-sm text-muted-foreground mb-4">
-                          {startup.description || 'No description.'}
-                        </p>
-                      </div>
-                      {startup.website && (
-                      <Button variant="outline" size="sm" asChild>
-                        <a href={startup.website} target="_blank" rel="noopener noreferrer">
-                          View
-                          <ExternalLink className="w-4 h-4 ml-2" />
-                        </a>
-                      </Button>
-                      )}
+                  {roleDetailRows.map((row) => (
+                    <div key={row.label} className="glass-card p-4">
+                      <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">{row.label}</p>
+                      <p className="text-sm text-foreground whitespace-pre-wrap">{row.value}</p>
                     </div>
-                  </motion.div>
                   ))}
+                </TabsContent>
+
+                <TabsContent value="activity" className="space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    {[
+                      { label: 'Posts', value: profileStats.posts },
+                      { label: 'Comments', value: profileStats.comments },
+                      { label: 'Reactions', value: profileStats.reactions },
+                      { label: 'Connections', value: profileStats.connections },
+                      { label: 'Communities', value: profileStats.communities },
+                    ].map((item) => (
+                      <div key={item.label} className="glass-card p-4 text-center">
+                        <div className="text-xl font-bold text-foreground">{item.value}</div>
+                        <div className="text-xs text-muted-foreground">{item.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-foreground mb-3">Recent Posts</h4>
+                    {userPosts.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No posts yet.</p>
+                    ) : (
+                      userPosts.slice(0, 5).map((post) => (
+                        <div key={post.id} className="glass-card p-4 mb-3">
+                          <p className="text-sm text-foreground line-clamp-3">{post.content}</p>
+                          <p className="text-xs text-muted-foreground mt-2">{post.time} · {post.likes} reactions · {post.comments} comments</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </TabsContent>
               </Tabs>
             </div>
           </div>
         </div>
-      </main>
-    </div>
+    </AppShell>
   )
 }

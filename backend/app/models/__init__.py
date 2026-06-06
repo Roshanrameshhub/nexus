@@ -7,7 +7,7 @@ from app.models.reaction import PostReaction, CommentReaction, MessageReaction, 
 from app.models.bookmark import Repost, Bookmark
 from app.models.message import Conversation, Message
 from app.models.notification import Notification
-from app.models.community import Community, CommunityDiscussion
+from app.models.community import Community, CommunityDiscussion, DiscussionComment, DiscussionLike
 from app.models.team import Team, TeamChannel
 from app.models.startup import Startup, StartupPosition
 from app.models.news_bookmark import NewsBookmark
@@ -36,6 +36,8 @@ __all__ = [
     "Notification",
     "Community",
     "CommunityDiscussion",
+    "DiscussionComment",
+    "DiscussionLike",
     "Team",
     "TeamChannel",
     "Startup",

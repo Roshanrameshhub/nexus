@@ -1,112 +1,85 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
-import { 
-  Sparkles, 
-  Home,
-  Users,
-  MessageSquare,
-  Bell,
-  Settings,
-  Rocket,
-  Briefcase,
+import {
   Search,
   TrendingUp,
   Clock,
   Filter,
   Plus,
   ChevronUp,
-  ChevronDown,
   MessageCircle,
   Eye,
-  Bookmark,
-  MoreHorizontal,
+  Share2,
   Hash,
   Flame,
-  Award
+  Pin,
+  Sparkles,
 } from 'lucide-react'
-import { LogoutButton } from '@/components/auth/logout-button'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { AppShell } from '@/components/layout/app-shell'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { communitiesAPI } from '@/services/api'
-import { newsAPI } from '@/services/news-api'
-import { useAuthStore } from '@/lib/store'
 import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
-import { formatTimeAgo, getInitials, roleLabel } from '@/lib/utils/format'
+import { formatTimeAgo, getInitials } from '@/lib/utils/format'
 import type { ApiCommunity, ApiDiscussion } from '@/lib/types/api'
 
-const sidebarItems = [
-  { icon: Home, label: 'Dashboard', href: '/dashboard' },
-  { icon: Users, label: 'Network', href: '/feed' },
-  { icon: MessageSquare, label: 'Messages', href: '/messages' },
-  { icon: Bell, label: 'Notifications', href: '/notifications' },
-  { icon: Rocket, label: 'Startups', href: '/startups' },
-  { icon: Briefcase, label: 'Sessions', href: '/sessions' },
-]
-
-interface DiscussionView {
-  id: string
-  title: string
-  content: string
-  author: { name: string; avatar: string; role: string }
+interface DiscussionView extends ApiDiscussion {
   category: string
-  votes: number
-  comments: number
-  views: string
-  time: string
   hot: boolean
 }
 
 export default function CommunityPage() {
   useProtectedRoute()
-  const user = useAuthStore((s) => s.user)
   const [selectedCategory, setSelectedCategory] = useState('All Topics')
-  const [sortBy, setSortBy] = useState('hot')
+  const [sortBy, setSortBy] = useState<'hot' | 'new' | 'top'>('hot')
   const [communities, setCommunities] = useState<ApiCommunity[]>([])
   const [discussions, setDiscussions] = useState<DiscussionView[]>([])
-  const [trendingTags, setTrendingTags] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
 
   const categories = [
-    { name: 'All Topics', count: String(communities.reduce((a, c) => a + c.member_count, 0) || 0), icon: Hash },
+    { name: 'All Topics', count: String(communities.reduce((a, c) => a + c.member_count, 0) || 0), icon: Hash, href: null as string | null },
     ...communities.slice(0, 5).map((c) => ({
       name: c.name,
       count: String(c.member_count),
       icon: Sparkles,
+      href: `/communities/${c.id}`,
     })),
   ]
+
+  const trendingTags = useMemo(() => {
+    const tags = new Set<string>()
+    communities.forEach((c) => (c.tags || []).forEach((t) => tags.add(`#${t}`)))
+    return Array.from(tags).slice(0, 8)
+  }, [communities])
 
   const loadData = useCallback(async () => {
     try {
       const commRes = await communitiesAPI.getAll()
       const comms: ApiCommunity[] = commRes.data.communities || []
       setCommunities(comms)
-      const topicsRes = await newsAPI.getTrendingTopics()
-      setTrendingTags((topicsRes.data.topics || []).slice(0, 6).map((t: { name: string }) => `#${t.name.replace(/\s/g, '')}`))
 
+      const memberCommunities = comms.filter((c) => c.is_member)
       const allDiscussions: DiscussionView[] = []
-      for (const comm of comms.slice(0, 5)) {
-        const dRes = await communitiesAPI.getDiscussions(comm.id)
-        for (const d of (dRes.data.discussions || []) as ApiDiscussion[]) {
-          allDiscussions.push({
-            id: d.id,
-            title: d.title,
-            content: d.content,
-            author: {
-              name: d.author.name,
-              avatar: d.author.avatar || '',
-              role: roleLabel(d.author.role),
-            },
-            category: comm.name,
-            votes: 0,
-            comments: 0,
-            views: String(comm.member_count),
-            time: formatTimeAgo(d.created_at),
-            hot: false,
-          })
+
+      for (const comm of memberCommunities) {
+        try {
+          const sort = sortBy === 'new' ? 'recent' : sortBy === 'top' ? 'top' : 'trending'
+          const dRes = await communitiesAPI.getDiscussions(comm.id, sort)
+          for (const d of (dRes.data.discussions || []) as ApiDiscussion[]) {
+            const score = (d.likes_count ?? 0) + (d.comments_count ?? 0) * 2
+            allDiscussions.push({
+              ...d,
+              category: comm.name,
+              hot: score >= 5,
+            })
+          }
+        } catch {
+          // skip communities where discussions are unavailable
         }
       }
       setDiscussions(allDiscussions)
@@ -116,7 +89,7 @@ export default function CommunityPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [sortBy])
 
   useEffect(() => {
     loadData()
@@ -126,65 +99,30 @@ export default function CommunityPage() {
     (d) => selectedCategory === 'All Topics' || d.category === selectedCategory
   )
 
+  const handleLike = async (discussionId: string) => {
+    try {
+      await communitiesAPI.likeDiscussion(discussionId)
+      loadData()
+    } catch {
+      toast.error('Could not update like')
+    }
+  }
+
+  const handleShare = async (discussion: DiscussionView) => {
+    const url = `${window.location.origin}/communities/discussions/${discussion.id}`
+    try {
+      await navigator.clipboard.writeText(url)
+      await communitiesAPI.shareDiscussion(discussion.id)
+      toast.success('Link copied to clipboard')
+      loadData()
+    } catch {
+      toast.error('Could not share')
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-background flex">
-      {/* Sidebar */}
-      <motion.aside 
-        className="fixed left-0 top-0 h-full w-64 bg-sidebar border-r border-sidebar-border z-40"
-        initial={{ x: -100, opacity: 0 }}
-        animate={{ x: 0, opacity: 1 }}
-        transition={{ duration: 0.3 }}
-      >
-        <div className="flex flex-col h-full p-4">
-          <Link href="/dashboard" className="flex items-center gap-2 mb-8 px-2">
-            <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center glow-primary">
-              <Sparkles className="w-6 h-6 text-primary-foreground" />
-            </div>
-            <span className="text-xl font-bold text-foreground">Nexus</span>
-          </Link>
-          
-          <nav className="space-y-1 flex-1">
-            {sidebarItems.map((item) => (
-              <Link
-                key={item.label}
-                href={item.href}
-                className="flex items-center gap-3 px-3 py-3 rounded-xl text-sidebar-foreground hover:bg-sidebar-accent/50 transition-all"
-              >
-                <item.icon className="w-5 h-5" />
-                <span className="font-medium">{item.label}</span>
-              </Link>
-            ))}
-          </nav>
-          
-          <div className="border-t border-sidebar-border pt-4 mt-4">
-            <Link href="/profile" className="flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-sidebar-accent/50 transition-all">
-              <Avatar className="w-10 h-10">
-                <AvatarImage src="" />
-                <AvatarFallback className="bg-primary/20 text-primary">{user ? getInitials(user.name) : 'U'}</AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <div className="font-medium text-foreground truncate">{user?.name || 'User'}</div>
-                <div className="text-xs text-muted-foreground truncate">{user ? roleLabel(user.role) : ''}</div>
-              </div>
-            </Link>
-            
-            <div className="flex items-center gap-2 mt-2">
-              <Link href="/settings" className="flex-1">
-                <Button variant="ghost" size="sm" className="w-full justify-start gap-2">
-                  <Settings className="w-4 h-4" />
-                  Settings
-                </Button>
-              </Link>
-              <LogoutButton />
-            </div>
-          </div>
-        </div>
-      </motion.aside>
-      
-      {/* Main Content */}
-      <main className="flex-1 ml-64">
-        {/* Header */}
-        <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-xl border-b border-border">
+    <AppShell title="Community" mainClassName="p-0">
+      <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-xl border-b border-border">
           <div className="flex items-center justify-between px-6 py-4">
             <div className="flex items-center gap-4">
               <h1 className="text-xl font-bold text-foreground">Community</h1>
@@ -192,8 +130,8 @@ export default function CommunityPage() {
             <div className="flex items-center gap-3">
               <div className="relative w-80">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input 
-                  placeholder="Search discussions..." 
+                <Input
+                  placeholder="Search discussions..."
                   className="pl-10 bg-secondary/50 border-border/50"
                 />
               </div>
@@ -206,13 +144,11 @@ export default function CommunityPage() {
             </div>
           </div>
         </header>
-        
-        {/* Content */}
+
         <div className="max-w-6xl mx-auto p-6">
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            {/* Left Sidebar - Categories */}
             <div className="space-y-6">
-              <motion.div 
+              <motion.div
                 className="glass-card p-4"
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -220,50 +156,95 @@ export default function CommunityPage() {
               >
                 <h3 className="font-semibold text-foreground mb-3">Categories</h3>
                 <div className="space-y-1">
-                  {categories.map((cat) => (
-                    <button
-                      key={cat.name}
-                      onClick={() => setSelectedCategory(cat.name)}
-                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all ${
-                        selectedCategory === cat.name 
-                          ? 'bg-primary/10 text-primary' 
-                          : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-                      }`}
-                    >
-                      <cat.icon className="w-4 h-4" />
-                      <span className="flex-1 text-left text-sm">{cat.name}</span>
-                      <span className="text-xs">{cat.count}</span>
-                    </button>
-                  ))}
+                  {categories.map((cat) =>
+                    cat.href ? (
+                      <Link
+                        key={cat.name}
+                        href={cat.href}
+                        onClick={() => setSelectedCategory(cat.name)}
+                        className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all ${
+                          selectedCategory === cat.name
+                            ? 'bg-primary/10 text-primary'
+                            : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                        }`}
+                      >
+                        <cat.icon className="w-4 h-4" />
+                        <span className="flex-1 text-left text-sm">{cat.name}</span>
+                        <span className="text-xs">{cat.count}</span>
+                      </Link>
+                    ) : (
+                      <button
+                        key={cat.name}
+                        type="button"
+                        onClick={() => setSelectedCategory(cat.name)}
+                        className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all ${
+                          selectedCategory === cat.name
+                            ? 'bg-primary/10 text-primary'
+                            : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                        }`}
+                      >
+                        <cat.icon className="w-4 h-4" />
+                        <span className="flex-1 text-left text-sm">{cat.name}</span>
+                        <span className="text-xs">{cat.count}</span>
+                      </button>
+                    )
+                  )}
                 </div>
               </motion.div>
-              
-              <motion.div 
+
+              <motion.div
                 className="glass-card p-4"
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.5, delay: 0.1 }}
               >
-                <h3 className="font-semibold text-foreground mb-3">Trending Tags</h3>
+                <h3 className="font-semibold text-foreground mb-3">Community Tags</h3>
                 <div className="flex flex-wrap gap-2">
+                  {trendingTags.length === 0 && (
+                    <span className="text-sm text-muted-foreground">No tags yet</span>
+                  )}
                   {trendingTags.map((tag) => (
-                    <span 
+                    <span
                       key={tag}
-                      className="px-3 py-1 rounded-full bg-secondary text-sm text-muted-foreground hover:bg-primary/10 hover:text-primary cursor-pointer transition-colors"
+                      className="px-3 py-1 rounded-full bg-secondary text-sm text-muted-foreground"
                     >
                       {tag}
                     </span>
                   ))}
                 </div>
               </motion.div>
+
+              <motion.div
+                className="glass-card p-4"
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.5, delay: 0.15 }}
+              >
+                <h3 className="font-semibold text-foreground mb-3">Your Communities</h3>
+                <div className="space-y-2">
+                  {communities.filter((c) => c.is_member).length === 0 && (
+                    <p className="text-sm text-muted-foreground">Join a community to see discussions here.</p>
+                  )}
+                  {communities
+                    .filter((c) => c.is_member)
+                    .slice(0, 5)
+                    .map((c) => (
+                      <Link
+                        key={c.id}
+                        href={`/communities/${c.id}`}
+                        className="block text-sm text-muted-foreground hover:text-primary transition-colors"
+                      >
+                        {c.name}
+                      </Link>
+                    ))}
+                </div>
+              </motion.div>
             </div>
-            
-            {/* Main - Discussions */}
+
             <div className="lg:col-span-3 space-y-4">
-              {/* Sort Options */}
               <div className="flex items-center gap-2 mb-4">
-                <Button 
-                  variant={sortBy === 'hot' ? 'default' : 'outline'} 
+                <Button
+                  variant={sortBy === 'hot' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setSortBy('hot')}
                   className={sortBy === 'hot' ? 'glow-primary' : ''}
@@ -271,8 +252,8 @@ export default function CommunityPage() {
                   <Flame className="w-4 h-4 mr-2" />
                   Hot
                 </Button>
-                <Button 
-                  variant={sortBy === 'new' ? 'default' : 'outline'} 
+                <Button
+                  variant={sortBy === 'new' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setSortBy('new')}
                   className={sortBy === 'new' ? 'glow-primary' : ''}
@@ -280,8 +261,8 @@ export default function CommunityPage() {
                   <Clock className="w-4 h-4 mr-2" />
                   New
                 </Button>
-                <Button 
-                  variant={sortBy === 'top' ? 'default' : 'outline'} 
+                <Button
+                  variant={sortBy === 'top' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setSortBy('top')}
                   className={sortBy === 'top' ? 'glow-primary' : ''}
@@ -294,93 +275,114 @@ export default function CommunityPage() {
                   Filter
                 </Button>
               </div>
-              
-              {/* Discussion List */}
+
               {loading && filteredDiscussions.length === 0 && (
                 <p className="text-sm text-muted-foreground">Loading discussions...</p>
               )}
               {!loading && filteredDiscussions.length === 0 && (
-                <p className="text-sm text-muted-foreground">No discussions yet.</p>
+                <div className="glass-card p-6 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    No discussions to show. Join a community to participate in discussions and access community content.
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Select a community from the categories sidebar to get started.
+                  </p>
+                </div>
               )}
               {filteredDiscussions.map((discussion, index) => (
                 <motion.div
                   key={discussion.id}
-                  className="glass-card p-5 hover:border-primary/30 transition-all cursor-pointer"
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5, delay: index * 0.1 }}
+                  transition={{ duration: 0.5, delay: index * 0.05 }}
                 >
-                  <div className="flex gap-4">
-                    {/* Vote Section */}
-                    <div className="flex flex-col items-center gap-1">
-                      <button className="p-1 hover:bg-primary/10 rounded transition-colors">
-                        <ChevronUp className="w-5 h-5 text-muted-foreground hover:text-primary" />
-                      </button>
-                      <span className="font-semibold text-foreground">{discussion.votes}</span>
-                      <button className="p-1 hover:bg-destructive/10 rounded transition-colors">
-                        <ChevronDown className="w-5 h-5 text-muted-foreground hover:text-destructive" />
-                      </button>
-                    </div>
-                    
-                    {/* Content */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-2">
-                        {discussion.hot && (
-                          <span className="px-2 py-0.5 rounded-full bg-primary/20 text-primary text-xs font-medium flex items-center gap-1">
-                            <Flame className="w-3 h-3" />
-                            Hot
-                          </span>
-                        )}
-                        <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-xs">
-                          {discussion.category}
-                        </span>
+                  <Link
+                    href={`/communities/discussions/${discussion.id}`}
+                    className="glass-card p-5 hover:border-primary/30 transition-all block"
+                  >
+                    <div className="flex gap-4">
+                      <div className="flex flex-col items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            handleLike(discussion.id)
+                          }}
+                          className={`p-1 rounded transition-colors hover:bg-primary/10 ${
+                            discussion.liked ? 'text-primary' : 'text-muted-foreground hover:text-primary'
+                          }`}
+                        >
+                          <ChevronUp className="w-5 h-5" />
+                        </button>
+                        <span className="font-semibold text-foreground">{discussion.likes_count ?? 0}</span>
                       </div>
-                      
-                      <h3 className="text-lg font-semibold text-foreground mb-2 hover:text-primary transition-colors">
-                        {discussion.title}
-                      </h3>
-                      <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
-                        {discussion.content}
-                      </p>
-                      
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <Avatar className="w-6 h-6">
-                            <AvatarImage src={discussion.author.avatar} />
-                            <AvatarFallback className="bg-primary/20 text-primary text-xs">
-                              {discussion.author.name.split(' ').map(n => n[0]).join('')}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="text-sm text-muted-foreground">
-                            {discussion.author.name} · {discussion.time}
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          {discussion.is_pinned && (
+                            <span className="px-2 py-0.5 rounded-full bg-primary/20 text-primary text-xs font-medium flex items-center gap-1">
+                              <Pin className="w-3 h-3" />
+                              Pinned
+                            </span>
+                          )}
+                          {discussion.hot && (
+                            <span className="px-2 py-0.5 rounded-full bg-primary/20 text-primary text-xs font-medium flex items-center gap-1">
+                              <Flame className="w-3 h-3" />
+                              Hot
+                            </span>
+                          )}
+                          <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-xs">
+                            {discussion.category}
                           </span>
                         </div>
-                        
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <MessageCircle className="w-4 h-4" />
-                            {discussion.comments}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Eye className="w-4 h-4" />
-                            {discussion.views}
-                          </span>
-                          <button className="hover:text-foreground transition-colors">
-                            <Bookmark className="w-4 h-4" />
-                          </button>
-                          <button className="hover:text-foreground transition-colors">
-                            <MoreHorizontal className="w-4 h-4" />
-                          </button>
+
+                        <h3 className="text-lg font-semibold text-foreground mb-2 hover:text-primary transition-colors">
+                          {discussion.title}
+                        </h3>
+                        <p className="text-sm text-muted-foreground mb-3 line-clamp-2">{discussion.content}</p>
+
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <Avatar className="w-6 h-6">
+                              <AvatarImage src={discussion.author.avatar ?? undefined} />
+                              <AvatarFallback className="bg-primary/20 text-primary text-xs">
+                                {getInitials(discussion.author.name)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="text-sm text-muted-foreground">
+                              {discussion.author.name} · {formatTimeAgo(discussion.created_at)}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <MessageCircle className="w-4 h-4" />
+                              {discussion.comments_count ?? 0}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Eye className="w-4 h-4" />
+                              {discussion.views_count ?? 0}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                handleShare(discussion)
+                              }}
+                              className="hover:text-foreground transition-colors"
+                            >
+                              <Share2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
+                  </Link>
                 </motion.div>
               ))}
             </div>
           </div>
         </div>
-      </main>
-    </div>
+    </AppShell>
   )
 }

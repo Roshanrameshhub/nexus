@@ -16,6 +16,7 @@ import { useAuthStore } from '@/lib/store'
 import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
 import { useConnections } from '@/lib/hooks/api/use-connections'
 import { getInitials } from '@/lib/utils/format'
+import { countriesMatch, getCountryFromSearchParams } from '@/lib/utils/country'
 import { 
   Users, 
   Search, 
@@ -38,11 +39,12 @@ import {
   ChevronDown,
   SlidersHorizontal,
   Bookmark,
-  Users2
+  Users2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { ApiUserRecommendation, ApiCommunity } from '@/lib/types/api'
 import { motion, AnimatePresence } from 'framer-motion'
+import { openGmailCompose } from './email-actions'
 
 export default function NetworkPage() {
   useProtectedRoute()
@@ -83,10 +85,17 @@ export default function NetworkPage() {
   const [submittingMeeting, setSubmittingMeeting] = useState(false)
 
   // Load Data
-  const loadRecommendations = useCallback(async () => {
+  const loadRecommendations = useCallback(async (countryParam?: string) => {
     setLoadingRecs(true)
     try {
-      const { data } = await usersAPI.getRecommendations()
+      const queryCountry =
+        countryParam ??
+        getCountryFromSearchParams(typeof window !== 'undefined' ? window.location.search : '') ??
+        undefined
+      const { data } = await usersAPI.getRecommendations(
+        undefined,
+        queryCountry || undefined
+      )
       const list = data.recommendations || []
       setRecommendations(list)
     } catch {
@@ -112,7 +121,11 @@ export default function NetworkPage() {
   }, [])
 
   useEffect(() => {
-    loadRecommendations()
+    const country = getCountryFromSearchParams(window.location.search)
+    if (country) {
+      setCountryFilter(country)
+    }
+    loadRecommendations(country ?? undefined)
     loadCommunities()
   }, [loadRecommendations, loadCommunities])
 
@@ -256,7 +269,7 @@ export default function NetworkPage() {
 
       // 4. Country Filter
       if (countryFilter.trim()) {
-        if (!rec.country?.toLowerCase().includes(countryFilter.toLowerCase())) return false
+        if (!countriesMatch(rec.country, countryFilter)) return false
       }
 
       // 5. Industry Filter
@@ -713,7 +726,7 @@ export default function NetworkPage() {
                             {/* Bio */}
                             {rec.bio && (
                               <p className="text-muted-foreground line-clamp-2 italic text-[11px] pt-1">
-                                "{rec.bio}"
+                                &ldquo;{rec.bio}&rdquo;
                               </p>
                             )}
 
@@ -739,11 +752,19 @@ export default function NetworkPage() {
 
                           {/* Quick contact panel */}
                           <div className="flex items-center gap-3 pt-3 border-t border-border/30 text-muted-foreground">
-                            {rec.email && (
-                              <a href={`mailto:${rec.email}`} title={rec.email} className="hover:text-primary transition-colors">
-                                <Mail className="w-3.5 h-3.5" />
-                              </a>
-                            )}
+                            <button
+                              type="button"
+                              title={rec.email ? 'Send email' : 'Email not available'}
+                              disabled={!rec.email}
+                              onClick={() => rec.email && openGmailCompose(rec.email)}
+                              className={`transition-colors ${
+                                rec.email
+                                  ? 'hover:text-primary'
+                                  : 'opacity-50 cursor-not-allowed'
+                              }`}
+                            >
+                              <Mail className="w-3.5 h-3.5" />
+                            </button>
                             {rec.role_details?.website && (
                               <a href={rec.role_details.website} target="_blank" rel="noopener noreferrer" title="Website" className="hover:text-primary transition-colors">
                                 <ExternalLink className="w-3.5 h-3.5" />

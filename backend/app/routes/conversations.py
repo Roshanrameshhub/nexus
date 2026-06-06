@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import and_, desc, select
+from sqlalchemy import and_, desc, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -15,13 +15,147 @@ from app.utils.user_mapper import to_user_public
 
 router = APIRouter(tags=["Messages"])
 
+ATTACHMENT_TYPES = {"file", "image"}
+
+
+def _last_message_preview(msg: Message) -> str:
+    if msg.message_type in ATTACHMENT_TYPES and msg.attachment_meta:
+        file_name = msg.attachment_meta.get("file_name") or "Attachment"
+        if msg.message_type == "image":
+            return f"📷 {file_name}"
+        return f"📎 {file_name}"
+    return msg.content or ""
+
+
+def _parse_uploaded_at(meta: dict | None) -> datetime | None:
+    if not meta:
+        return None
+    raw = meta.get("uploaded_at")
+    if not raw:
+        return None
+    if isinstance(raw, datetime):
+        return raw
+    try:
+        return datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
+
+
+def _build_message_response(msg: Message, sender: User | None) -> MessageResponse:
+    meta = msg.attachment_meta or {}
+    return MessageResponse(
+        id=msg.id,
+        content=msg.content,
+        sender_id=msg.sender_id,
+        timestamp=msg.timestamp,
+        sender=to_user_public(sender) if sender else None,
+        message_type=msg.message_type or "text",
+        file_name=meta.get("file_name"),
+        file_url=meta.get("file_url"),
+        mime_type=meta.get("mime_type"),
+        file_size=meta.get("file_size"),
+        uploaded_at=_parse_uploaded_at(meta),
+    )
+
+
+def _message_ws_payload(msg: Message) -> dict:
+    meta = msg.attachment_meta or {}
+    return {
+        "id": str(msg.id),
+        "conversation_id": str(msg.conversation_id),
+        "sender_id": str(msg.sender_id),
+        "content": msg.content,
+        "timestamp": msg.timestamp.isoformat(),
+        "message_type": msg.message_type or "text",
+        "file_name": meta.get("file_name"),
+        "file_url": meta.get("file_url"),
+        "mime_type": meta.get("mime_type"),
+        "file_size": meta.get("file_size"),
+        "uploaded_at": meta.get("uploaded_at"),
+    }
+
+
+def _build_attachment_meta(body: MessageCreate) -> dict:
+    uploaded_at = datetime.now(timezone.utc).isoformat()
+    return {
+        "file_name": body.file_name,
+        "file_url": body.file_url,
+        "file_size": body.file_size or 0,
+        "mime_type": body.mime_type or "",
+        "uploaded_at": uploaded_at,
+    }
+
+
+async def _find_existing_conversation(
+    db: AsyncSession, participant_ids: set[UUID]
+) -> Conversation | None:
+    if len(participant_ids) != 2:
+        return None
+
+    shared_conversations = (
+        select(conversation_participants.c.conversation_id)
+        .where(conversation_participants.c.user_id.in_(participant_ids))
+        .group_by(conversation_participants.c.conversation_id)
+        .having(func.count(conversation_participants.c.user_id) == 2)
+    )
+
+    result = await db.execute(
+        select(Conversation)
+        .where(Conversation.id.in_(shared_conversations))
+        .options(selectinload(Conversation.participants))
+    )
+    for conv in result.scalars().unique().all():
+        conv_participant_ids = {p.id for p in conv.participants}
+        if conv_participant_ids == participant_ids:
+            return conv
+    return None
+
+
+async def _unread_count(db: AsyncSession, conversation_id: UUID, user_id: UUID) -> int:
+    result = await db.execute(
+        select(func.count())
+        .select_from(Message)
+        .where(
+            Message.conversation_id == conversation_id,
+            Message.sender_id != user_id,
+            Message.is_read.is_(False),
+        )
+    )
+    return result.scalar() or 0
+
+
+async def _build_conversation_response(
+    db: AsyncSession, conv: Conversation, current_user: CurrentUser
+) -> ConversationResponse | None:
+    last_msg_result = await db.execute(
+        select(Message)
+        .where(Message.conversation_id == conv.id)
+        .order_by(desc(Message.timestamp))
+        .limit(1)
+    )
+    last_msg = last_msg_result.scalar_one_or_none()
+    if not last_msg:
+        return None
+
+    unread = await _unread_count(db, conv.id, current_user.id)
+    return ConversationResponse(
+        id=conv.id,
+        participants=[to_user_public(p) for p in conv.participants],
+        last_message=_last_message_preview(last_msg),
+        last_message_at=last_msg.timestamp,
+        unread=unread,
+    )
+
 
 @router.get("/conversations", response_model=dict)
 async def list_conversations(current_user: CurrentUser, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Conversation)
         .join(conversation_participants)
-        .where(conversation_participants.c.user_id == current_user.id)
+        .where(
+            conversation_participants.c.user_id == current_user.id,
+            exists().where(Message.conversation_id == Conversation.id),
+        )
         .options(selectinload(Conversation.participants))
         .order_by(Conversation.updated_at.desc())
     )
@@ -29,19 +163,16 @@ async def list_conversations(current_user: CurrentUser, db: AsyncSession = Depen
     items: list[ConversationResponse] = []
 
     for conv in conversations:
-        last_msg_result = await db.execute(
-            select(Message).where(Message.conversation_id == conv.id).order_by(desc(Message.timestamp)).limit(1)
+        item = await _build_conversation_response(db, conv, current_user)
+        if item:
+            items.append(item)
+
+    items.sort(
+        key=lambda item: (
+            -item.unread,
+            -(item.last_message_at.timestamp() if item.last_message_at else 0),
         )
-        last_msg = last_msg_result.scalar_one_or_none()
-        items.append(
-            ConversationResponse(
-                id=conv.id,
-                participants=[to_user_public(p) for p in conv.participants],
-                last_message=last_msg.content if last_msg else None,
-                last_message_at=last_msg.timestamp if last_msg else conv.updated_at,
-                unread=0,
-            )
-        )
+    )
 
     return {"conversations": items}
 
@@ -55,6 +186,18 @@ async def create_conversation(
     participant_ids = set(body.participant_ids) | {current_user.id}
     if len(participant_ids) < 2:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Need at least one other participant")
+
+    existing = await _find_existing_conversation(db, participant_ids)
+    if existing:
+        item = await _build_conversation_response(db, existing, current_user)
+        return {
+            "conversation": item
+            or ConversationResponse(
+                id=existing.id,
+                participants=[to_user_public(p) for p in existing.participants],
+                unread=0,
+            )
+        }
 
     users_result = await db.execute(select(User).where(User.id.in_(participant_ids)))
     users = users_result.scalars().all()
@@ -90,20 +233,16 @@ async def get_messages(
     sender_map = {current_user.id: current_user}
     responses = []
     for msg in messages:
+        if msg.sender_id != current_user.id and not msg.is_read:
+            msg.is_read = True
+
         sender = sender_map.get(msg.sender_id)
         if not sender:
             u = await db.get(User, msg.sender_id)
             sender_map[msg.sender_id] = u
             sender = u
-        responses.append(
-            MessageResponse(
-                id=msg.id,
-                content=msg.content,
-                sender_id=msg.sender_id,
-                timestamp=msg.timestamp,
-                sender=to_user_public(sender) if sender else None,
-            )
-        )
+        responses.append(_build_message_response(msg, sender))
+    await db.flush()
     return {"messages": responses}
 
 
@@ -115,11 +254,35 @@ async def send_message(
     db: AsyncSession = Depends(get_db),
 ):
     conv = await _get_user_conversation(conversation_id, current_user.id, db)
+
+    message_type = (body.message_type or "text").lower()
+    attachment_meta = None
+    content = body.content.strip()
+
+    if message_type in ATTACHMENT_TYPES:
+        if not body.file_url or not body.file_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="file_url and file_name are required for attachment messages",
+            )
+        attachment_meta = _build_attachment_meta(body)
+        if not content:
+            content = body.file_name
+        if message_type == "image" or (body.mime_type or "").startswith("image/"):
+            message_type = "image"
+        else:
+            message_type = "file"
+    elif not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Message content is required")
+
     message = Message(
         conversation_id=conv.id,
         sender_id=current_user.id,
-        content=body.content,
+        content=content,
+        message_type=message_type,
+        attachment_meta=attachment_meta,
         timestamp=datetime.now(timezone.utc),
+        is_read=False,
     )
     conv.updated_at = datetime.now(timezone.utc)
     db.add(message)
@@ -127,29 +290,20 @@ async def send_message(
 
     from app.websocket.manager import manager
 
-    await manager.broadcast_to_conversation(
-        str(conv.id),
-        {
-            "type": "message",
-            "data": {
-                "id": str(message.id),
-                "conversation_id": str(conv.id),
-                "sender_id": str(current_user.id),
-                "content": message.content,
-                "timestamp": message.timestamp.isoformat(),
-            },
-        },
-    )
+    payload = {"type": "message", "data": _message_ws_payload(message)}
+    await manager.broadcast_to_conversation(str(conv.id), payload)
 
-    return {
-        "message": MessageResponse(
-            id=message.id,
-            content=message.content,
-            sender_id=message.sender_id,
-            timestamp=message.timestamp,
-            sender=to_user_public(current_user),
-        )
-    }
+    conv_with_participants = await db.execute(
+        select(Conversation)
+        .where(Conversation.id == conv.id)
+        .options(selectinload(Conversation.participants))
+    )
+    loaded_conv = conv_with_participants.scalar_one()
+    for participant in loaded_conv.participants:
+        if participant.id != current_user.id:
+            await manager.send_to_user(str(participant.id), payload)
+
+    return {"message": _build_message_response(message, current_user)}
 
 
 async def _get_user_conversation(conversation_id: UUID, user_id: UUID, db: AsyncSession) -> Conversation:

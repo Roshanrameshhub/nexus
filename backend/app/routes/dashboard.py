@@ -13,12 +13,30 @@ from app.models.startup import Startup
 from app.models.user import User
 from app.routes.posts import _build_post_response
 from app.schemas.community import CommunityResponse
-from app.schemas.dashboard import DashboardResponse, DashboardStats
+from app.schemas.dashboard import CountryDiscoveryItem, DashboardResponse, DashboardStats
 from app.schemas.startup import StartupResponse
 from app.schemas.user import UserRecommendation
 from app.services.recommendation_service import recommendation_service
+from app.utils.country import normalize_country
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+
+
+async def _build_country_discovery(db: AsyncSession) -> list[CountryDiscoveryItem]:
+    result = await db.execute(
+        select(User.country).where(
+            User.country.isnot(None),
+            User.country != "",
+        )
+    )
+    counts: dict[str, int] = {}
+    for (raw_country,) in result.all():
+        canonical = normalize_country(raw_country)
+        if canonical:
+            counts[canonical] = counts.get(canonical, 0) + 1
+
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0].lower()))
+    return [CountryDiscoveryItem(country=name, count=count) for name, count in ranked[:10]]
 
 
 @router.get("", response_model=DashboardResponse)
@@ -92,6 +110,7 @@ async def get_dashboard(current_user: CurrentUser, db: AsyncSession = Depends(ge
 
     startup_result = await db.execute(select(Startup).order_by(Startup.created_at.desc()).limit(5))
     startup_suggestions = [StartupResponse.model_validate(s) for s in startup_result.scalars().all()]
+    country_discovery = await _build_country_discovery(db)
 
     return DashboardResponse(
         stats=DashboardStats(
@@ -104,4 +123,5 @@ async def get_dashboard(current_user: CurrentUser, db: AsyncSession = Depends(ge
         trending_posts=trending_posts,
         active_communities=active_communities,
         startup_suggestions=startup_suggestions,
+        country_discovery=country_discovery,
     )

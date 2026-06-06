@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, String, Table, Text, Column, Boolean
+from sqlalchemy import DateTime, ForeignKey, String, Table, Text, Column, Boolean, JSON
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -39,6 +39,8 @@ class Message(Base):
     )
     sender_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     content: Mapped[str] = mapped_column(Text)
+    message_type: Mapped[str] = mapped_column(String(20), default="text")
+    attachment_meta: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     attachments: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
     is_edited: Mapped[bool] = mapped_column(Boolean, default=False)

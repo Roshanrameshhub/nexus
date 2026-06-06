@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -15,6 +15,7 @@ from app.schemas.user import UserPublic, UserRecommendation, UserUpdate
 from app.schemas.auth import MessageResponse
 from app.utils.user_mapper import to_user_public, to_user_response
 from app.services.recommendation_service import recommendation_service
+from app.utils.country import countries_match
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -28,6 +29,7 @@ async def get_me(current_user: CurrentUser):
 async def get_recommendations(
     current_user: CurrentUser,
     roles: List[str] = Query(None, alias="role"),
+    country: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db)
 ):
     query = select(User).where(User.id != current_user.id)
@@ -40,10 +42,13 @@ async def get_recommendations(
                 enum_roles.append(r)
         query = query.where(User.role.in_(enum_roles))
 
+    fetch_limit = 100 if country else 20
     result = await db.execute(
-        query.order_by(User.created_at.desc()).limit(20)
+        query.order_by(User.created_at.desc()).limit(fetch_limit)
     )
-    users = result.scalars().all()
+    users = list(result.scalars().all())
+    if country:
+        users = [u for u in users if countries_match(u.country, country)][:20]
     followed_result = await db.execute(
         select(Follow.followee_id).where(Follow.follower_id == current_user.id)
     )
