@@ -198,7 +198,7 @@ export default function DashboardPage() {
                 <p className="text-sm text-muted-foreground">Live updates from your network</p>
               </div>
               <Button variant="ghost" size="sm" asChild>
-                <Link href="/posts">View feed</Link>
+                <Link href="/feed">View feed</Link>
               </Button>
             </div>
             <div className="grid gap-4">
