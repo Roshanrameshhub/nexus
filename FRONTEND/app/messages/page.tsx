@@ -1,7 +1,7 @@
 'use client'
 
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
@@ -16,10 +16,18 @@ import {
   Heart,
   Flame,
   MessageSquare,
+  User,
+  Trash2,
   X
 } from 'lucide-react'
 import { AppShell } from '@/components/layout/app-shell'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Textarea } from '@/components/ui/textarea'
@@ -41,13 +49,23 @@ import { getInitials, roleLabel } from '@/lib/utils/format'
 import { getMediaUrl } from '@/lib/config/api'
 import { toast } from 'sonner'
 
+function getConversationIdFromParams(searchParams: URLSearchParams): string | null {
+  return (
+    searchParams.get('conversation') ||
+    searchParams.get('c') ||
+    searchParams.get('convId')
+  )
+}
+
 function MessagesPageContent() {
   useProtectedRoute()
+  const router = useRouter()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const user = useAuthStore((s) => s.user)
+  const conversationIdFromUrl = getConversationIdFromParams(searchParams)
   const [conversations, setConversations] = useState<ConversationView[]>([])
-  const [selectedConversation, setSelectedConversation] = useState<ConversationView | null>(null)
+  const [orphanConversation, setOrphanConversation] = useState<ConversationView | null>(null)
   const [messages, setMessages] = useState<MessageView[]>([])
   const [messageInput, setMessageInput] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
@@ -85,69 +103,89 @@ function MessagesPageContent() {
     void loadConversations()
   }, [loadConversations, user?.id])
 
-  useEffect(() => {
-    const conversationId =
-      searchParams.get('conversation') ||
-      searchParams.get('c') ||
-      searchParams.get('convId')
-    if (!conversationId || !user?.id) return
+  const activeConversation = useMemo(() => {
+    if (!conversationIdFromUrl) return null
+    return (
+      conversations.find((c) => c.id === conversationIdFromUrl) ??
+      (orphanConversation?.id === conversationIdFromUrl ? orphanConversation : null)
+    )
+  }, [conversationIdFromUrl, conversations, orphanConversation])
 
-    const match = conversations.find((c) => c.id === conversationId)
-    if (match) {
-      setSelectedConversation(match)
+  useEffect(() => {
+    if (!conversationIdFromUrl || !user?.id) {
+      setOrphanConversation(null)
+      return
+    }
+    if (conversations.some((c) => c.id === conversationIdFromUrl)) {
+      setOrphanConversation(null)
       return
     }
 
     let cancelled = false
     messagesAPI
-      .getConversation(conversationId)
+      .getConversation(conversationIdFromUrl)
       .then((res) => {
         if (cancelled) return
         const raw = res.data.conversation
-        if (raw) setSelectedConversation(mapConversation(raw, user.id))
+        if (raw) setOrphanConversation(mapConversation(raw, user.id))
       })
       .catch(() => {
-        if (!cancelled) toast.error('Conversation not found')
+        if (!cancelled) {
+          setOrphanConversation(null)
+          toast.error('Conversation not found')
+          router.replace('/messages')
+        }
       })
 
     return () => {
       cancelled = true
     }
-  }, [searchParams, conversations, user?.id])
+  }, [conversationIdFromUrl, conversations, user?.id, router])
 
-  const loadMessages = useCallback(() => {
-    if (!selectedConversation) return
+  useEffect(() => {
+    if (!activeConversation?.id || !user?.id) {
+      setMessages([])
+      setMessagesLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setMessages([])
     setMessagesLoading(true)
     messagesAPI
-      .getMessages(selectedConversation.id)
+      .getMessages(activeConversation.id)
       .then((res) => {
-        setMessages((res.data.messages || []).map((m: any) => mapMessage(m, user!.id)))
+        if (cancelled) return
+        setMessages((res.data.messages || []).map((m: any) => mapMessage(m, user.id)))
         setMessagesLoading(false)
       })
       .catch(() => {
+        if (cancelled) return
         setMessages([])
         setMessagesLoading(false)
       })
-  }, [selectedConversation, user?.id])
 
-  useEffect(() => {
-    loadMessages()
-  }, [loadMessages])
+    return () => {
+      cancelled = true
+    }
+  }, [activeConversation?.id, user?.id])
 
   const handleSocketMessage = useCallback(
     (payload: Record<string, unknown>) => {
-      if (!user?.id) return
+      if (!user?.id || !conversationIdFromUrl) return
+      const payloadConversationId = String(payload.conversation_id ?? '')
+      if (payloadConversationId && payloadConversationId !== conversationIdFromUrl) return
       const mapped = mapMessage(payload as any, user.id)
       setMessages((prev) => (prev.some((m) => m.id === mapped.id) ? prev : [...prev, mapped]))
       void loadConversations()
       void queryClient.invalidateQueries({ queryKey: ['conversations'] })
     },
-    [user?.id, loadConversations, queryClient]
+    [user?.id, conversationIdFromUrl, loadConversations, queryClient]
   )
 
   const handleReadReceipt = useCallback(
     (payload: { conversation_id?: string; message_ids?: string[] }) => {
-      if (payload.conversation_id && payload.conversation_id !== selectedConversation?.id) {
+      if (payload.conversation_id && payload.conversation_id !== activeConversation?.id) {
         return
       }
       const ids = new Set(payload.message_ids ?? [])
@@ -156,19 +194,42 @@ function MessagesPageContent() {
         prev.map((m) => (ids.has(m.id) && m.sender === 'me' ? { ...m, read: true } : m))
       )
     },
-    [selectedConversation?.id]
+    [activeConversation?.id]
   )
 
-  useMessageSocket(selectedConversation?.id ?? null, handleSocketMessage, handleReadReceipt)
+  useMessageSocket(activeConversation?.id ?? null, handleSocketMessage, handleReadReceipt)
+
+  const openConversation = (conv: ConversationView) => {
+    router.push(`/messages?conversation=${conv.id}`)
+  }
+
+  const closeConversation = () => {
+    router.push('/messages')
+  }
+
+  const handleDeleteChat = async () => {
+    if (!activeConversation) return
+    const deletedId = activeConversation.id
+    try {
+      await messagesAPI.deleteConversation(deletedId)
+      setConversations((prev) => prev.filter((c) => c.id !== deletedId))
+      setOrphanConversation(null)
+      void queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      router.push('/messages')
+      toast.success('Chat deleted')
+    } catch {
+      toast.error('Could not delete chat')
+    }
+  }
 
   const sendMessage = async () => {
-    if (!messageInput.trim() || !selectedConversation) return
+    if (!messageInput.trim() || !activeConversation) return
     const content = messageInput.trim()
     setMessageInput('')
     setIsTyping(false)
     try {
-      await messagesAPI.sendMessage(selectedConversation.id, content)
-      const { data } = await messagesAPI.getMessages(selectedConversation.id)
+      await messagesAPI.sendMessage(activeConversation.id, content)
+      const { data } = await messagesAPI.getMessages(activeConversation.id)
       setMessages((data.messages || []).map((m: any) => mapMessage(m, user!.id)))
       await loadConversations()
     } catch {
@@ -202,7 +263,7 @@ function MessagesPageContent() {
   }
 
   const sendAttachmentMessage = async (file: File) => {
-    if (!selectedConversation) return
+    if (!activeConversation) return
     setUploadingAttachment(true)
     try {
       const { data } = await uploadAPI.uploadFile(file)
@@ -213,7 +274,7 @@ function MessagesPageContent() {
         mime_type: string
       }
       const isImage = uploaded.mime_type.startsWith('image/')
-      await messagesAPI.sendMessage(selectedConversation.id, {
+      await messagesAPI.sendMessage(activeConversation.id, {
         content: '',
         message_type: isImage ? 'image' : 'file',
         file_name: uploaded.file_name,
@@ -221,7 +282,7 @@ function MessagesPageContent() {
         file_size: uploaded.file_size,
         mime_type: uploaded.mime_type,
       })
-      const { data: msgData } = await messagesAPI.getMessages(selectedConversation.id)
+      const { data: msgData } = await messagesAPI.getMessages(activeConversation.id)
       setMessages((msgData.messages || []).map((m: any) => mapMessage(m, user!.id)))
       await loadConversations()
       await queryClient.invalidateQueries({ queryKey: ['conversations'] })
@@ -234,7 +295,7 @@ function MessagesPageContent() {
   }
 
   const handleAttach = async (file: File | undefined) => {
-    if (!file || !selectedConversation) return
+    if (!file || !activeConversation) return
     await sendAttachmentMessage(file)
   }
 
@@ -242,7 +303,7 @@ function MessagesPageContent() {
     <AppShell title="Messages" hideSearchAndTheme>
       <div className="max-w-6xl mx-auto flex flex-col h-[calc(100vh-120px)] overflow-hidden">
         {/* Conversations List */}
-        {!selectedConversation ? (
+        {!conversationIdFromUrl ? (
           <motion.div
             className="w-full glass-card flex flex-col shrink-0 flex-1 overflow-hidden"
             initial={{ opacity: 0, x: -20 }}
@@ -277,9 +338,9 @@ function MessagesPageContent() {
                   {filteredConversations.map((conv) => (
                     <button
                       key={conv.id}
-                      onClick={() => setSelectedConversation(conv)}
+                      onClick={() => openConversation(conv)}
                       className={`w-full p-4 flex items-start gap-3 hover:bg-secondary/50 transition-all border-b border-border/50 ${
-                        (selectedConversation as any)?.id === conv.id ? 'bg-secondary/50' : ''
+                        conversationIdFromUrl === conv.id ? 'bg-secondary/50' : ''
                       }`}
                     >
                       <div className="relative">
@@ -313,6 +374,10 @@ function MessagesPageContent() {
               )}
             </div>
           </motion.div>
+        ) : !activeConversation ? (
+          <div className="flex-1 glass-card flex items-center justify-center">
+            <p className="text-sm text-muted-foreground">Loading conversation...</p>
+          </div>
         ) : (
           <motion.div
             className="flex-1 glass-card flex flex-col min-w-0 overflow-hidden"
@@ -328,7 +393,7 @@ function MessagesPageContent() {
                 variant="ghost"
                 size="sm"
                 className="h-8 w-8 p-0"
-                onClick={() => setSelectedConversation(null)}
+                onClick={closeConversation}
               >
                 <X className="w-4 h-4 text-muted-foreground" />
               </Button>
@@ -339,25 +404,46 @@ function MessagesPageContent() {
               <div className="flex items-center gap-3 min-w-0">
                 <div className="relative shrink-0">
                   <Avatar className="w-10 h-10">
-                    <AvatarImage src={getMediaUrl(selectedConversation.user.avatar)} />
+                    <AvatarImage src={getMediaUrl(activeConversation.user.avatar)} />
                     <AvatarFallback className="bg-primary/20 text-primary">
-                      {getInitials(selectedConversation.user.name)}
+                      {getInitials(activeConversation.user.name)}
                     </AvatarFallback>
                   </Avatar>
-                  {selectedConversation.user.online && (
+                  {activeConversation.user.online && (
                     <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-background" />
                   )}
                 </div>
                 <div className="min-w-0">
-                  <h3 className="font-semibold text-foreground truncate">{selectedConversation.user.name}</h3>
+                  <h3 className="font-semibold text-foreground truncate">{activeConversation.user.name}</h3>
                   <p className="text-xs text-muted-foreground truncate">
-                    {selectedConversation.user.role} · {selectedConversation.user.online ? 'Online' : `Last active ${selectedConversation.time}`}
+                    {activeConversation.user.role} · {activeConversation.user.online ? 'Online' : `Last active ${activeConversation.time}`}
                   </p>
                 </div>
               </div>
-              <Button variant="ghost" size="sm" className="shrink-0">
-                <MoreVertical className="w-5 h-5 text-muted-foreground" />
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="shrink-0">
+                    <MoreVertical className="w-5 h-5 text-muted-foreground" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {activeConversation.peerId && (
+                    <DropdownMenuItem asChild>
+                      <Link href={`/users/${activeConversation.peerId}`}>
+                        <User className="w-4 h-4 mr-2" />
+                        View Profile
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => void handleDeleteChat()}
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete Chat
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
             {/* Messages */}

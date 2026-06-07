@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Check, MessageSquare, Calendar, Globe, Users, FileText, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { useQuery } from '@tanstack/react-query'
@@ -15,11 +15,9 @@ import { useAuthStore } from '@/lib/store'
 import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
 import { queryKeys } from '@/lib/query-keys'
 import { mapPostToFeedView, type FeedPostView } from '@/lib/mappers/posts'
-import { getInitials, formatTimeAgo, roleLabel } from '@/lib/utils/format'
+import { getInitials, formatTimeAgo } from '@/lib/utils/format'
 import type { ApiDashboard } from '@/lib/types/api'
 import { getLastMessagePreview, mapConversations } from '@/lib/mappers/messages'
-import { getConnectionPeer } from '@/lib/mappers/connections'
-import { useConnections } from '@/lib/hooks/api/use-connections'
 import { getMediaUrl } from '@/lib/config/api'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 
@@ -97,9 +95,6 @@ export default function DashboardPage() {
     staleTime: 1000 * 60 * 3,
   })
 
-  const [showMyConnections, setShowMyConnections] = useState(false)
-  const { data: myConnections = [], isLoading: loadingMyConnections } = useConnections()
-
   const connectionRequestsQuery = useQuery({
     queryKey: ['connections', 'received'],
     queryFn: async () => {
@@ -164,42 +159,9 @@ export default function DashboardPage() {
               <Users className="w-5 h-5 text-primary mb-2" />
               <p className="text-sm text-muted-foreground">Connections</p>
               <p className="text-3xl font-semibold text-foreground">{dashboard?.stats.connections_count ?? 0}</p>
-              <Button
-                variant="link"
-                className="p-0 h-auto mt-2 text-xs"
-                onClick={() => setShowMyConnections((open) => !open)}
-              >
-                My Connections
+              <Button variant="link" className="p-0 h-auto mt-2 text-xs" asChild>
+                <Link href="/connections">My Connections</Link>
               </Button>
-              {showMyConnections && (
-                <div className="mt-4 space-y-3 w-full text-left">
-                  {loadingMyConnections && <CardSkeleton count={2} />}
-                  {!loadingMyConnections && myConnections.length === 0 && (
-                    <p className="text-sm text-muted-foreground text-center">You have no active connections yet.</p>
-                  )}
-                  {myConnections.map((connection) => {
-                    const peer = getConnectionPeer(connection, user?.id ?? '')
-                    if (!peer) return null
-                    return (
-                      <div key={connection.id} className="flex items-center gap-3">
-                        <Avatar className="w-10 h-10">
-                          <AvatarImage src={getMediaUrl(peer.avatar)} />
-                          <AvatarFallback className="bg-primary/20 text-primary">
-                            {getInitials(peer.name)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1 min-w-0">
-                          <Link href={`/users/${peer.id}`} className="font-medium text-foreground hover:text-primary truncate block">
-                            {peer.name}
-                          </Link>
-                          <p className="text-sm text-muted-foreground">{roleLabel(peer.role)}</p>
-                        </div>
-                        <span className="text-xs text-primary shrink-0">Connected</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
             </div>
             <div className="glass-card p-4 bg-background/90 flex flex-col items-center justify-center text-center">
               <Users className="w-5 h-5 text-accent mb-2" />

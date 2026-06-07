@@ -3,6 +3,7 @@ import type { ApiUser } from '@/lib/types/api'
 
 export interface ConversationView {
   id: string
+  peerId?: string
   user: {
     name: string
     avatar?: string | null
@@ -90,6 +91,7 @@ export function mapConversation(
 
   return {
     id: String(raw.id),
+    peerId: other?.id ? String(other.id) : undefined,
     user: {
       name: other?.name ?? 'Unknown',
       avatar: other?.avatar,

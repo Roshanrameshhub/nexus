@@ -1,101 +1,174 @@
 'use client'
 
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Users } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import {
+  Users,
+  MessageSquare,
+  Calendar,
+  Sparkles,
+  UserCheck,
+} from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { AppShell } from '@/components/layout/app-shell'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { CardSkeleton } from '@/components/ui/loading-skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
-import { ConnectButton } from '@/components/social/connect-button'
 import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
-import { useConnections, useReceivedRequests } from '@/lib/hooks/api/use-connections'
+import { useConnections } from '@/lib/hooks/api/use-connections'
+import { getConnectionPeer } from '@/lib/mappers/connections'
 import { getInitials, roleLabel } from '@/lib/utils/format'
+import { getMediaUrl } from '@/lib/config/api'
 import { useAuthStore } from '@/lib/store'
+import { messagesAPI, usersAPI } from '@/services/api'
+import type { ApiUserRecommendation } from '@/lib/types/api'
 
 export default function ConnectionsPage() {
   useProtectedRoute()
+  const router = useRouter()
   const me = useAuthStore((s) => s.user)
-  const { data: connections, isLoading } = useConnections()
-  const { data: received, isLoading: loadingReceived } = useReceivedRequests()
+  const { data: connections = [], isLoading } = useConnections()
+  const [matchByUserId, setMatchByUserId] = useState<Record<string, string>>({})
+
+  const loadMatchScores = useCallback(async () => {
+    try {
+      const { data } = await usersAPI.getRecommendations()
+      const map: Record<string, string> = {}
+      for (const rec of (data.recommendations ?? []) as ApiUserRecommendation[]) {
+        if (rec.id && rec.match) map[String(rec.id)] = rec.match
+      }
+      setMatchByUserId(map)
+    } catch {
+      setMatchByUserId({})
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadMatchScores()
+  }, [loadMatchScores])
+
+  const connectedPeers = useMemo(
+    () =>
+      connections
+        .map((connection) => {
+          const peer = getConnectionPeer(connection, me?.id ?? '')
+          if (!peer) return null
+          return { connection, peer }
+        })
+        .filter(Boolean) as Array<{
+        connection: (typeof connections)[number]
+        peer: NonNullable<ReturnType<typeof getConnectionPeer>>
+      }>,
+    [connections, me?.id]
+  )
+
+  const handleMessage = async (userId: string) => {
+    try {
+      const { data } = await messagesAPI.createConversation([userId])
+      const convId = data.conversation?.id
+      router.push(convId ? `/messages?conversation=${convId}` : '/messages')
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      toast.error(typeof detail === 'string' ? detail : 'Could not start conversation')
+    }
+  }
 
   return (
-    <AppShell title="My Network">
-      <div className="max-w-3xl mx-auto space-y-10">
-        <section>
-          <h2 className="text-lg font-semibold mb-4">Pending requests</h2>
-          {loadingReceived && <CardSkeleton count={2} />}
-          {!loadingReceived && (!received || received.length === 0) && (
-            <p className="text-sm text-muted-foreground">No pending requests.</p>
-          )}
-          <div className="space-y-3">
-            {received?.map((req: {
-              id: string
-              sender?: { id: string; name: string; avatar?: string | null; role: string }
-            }) => (
-              <div key={req.id} className="glass-card p-4 flex items-center gap-4">
-                <Avatar>
-                  <AvatarImage src={req.sender?.avatar || undefined} />
-                  <AvatarFallback>{getInitials(req.sender?.name || '?')}</AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <Link href={`/users/${req.sender?.id}`} className="font-medium hover:text-primary">
-                    {req.sender?.name}
-                  </Link>
-                  <p className="text-sm text-muted-foreground">{roleLabel(req.sender?.role || '')}</p>
-                </div>
-                {req.sender?.id && <ConnectButton userId={req.sender.id} size="sm" />}
-              </div>
-            ))}
-          </div>
-        </section>
+    <AppShell title="My Connections">
+      <div className="max-w-5xl mx-auto space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">My Connections</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {connections.length} active connection{connections.length === 1 ? '' : 's'}
+          </p>
+        </div>
 
-        <section>
-          <h2 className="text-lg font-semibold mb-4">Connections ({connections?.length ?? 0})</h2>
-          {isLoading && <CardSkeleton count={4} />}
-          {!isLoading && (!connections || connections.length === 0) && (
-            <EmptyState
-              icon={Users}
-              title="No connections yet"
-              description="Discover people and send connection requests."
-              action={
-                <Link href="/discover">
-                  <Button className="glow-primary">Discover people</Button>
-                </Link>
-              }
-            />
-          )}
-          <div className="space-y-3">
-            {connections?.map((conn: {
-              id: string
-              sender_id: string
-              receiver_id: string
-              sender?: { id: string; name: string; avatar?: string | null; role: string }
-              receiver?: { id: string; name: string; avatar?: string | null; role: string }
-            }) => {
-              const other =
-                conn.sender_id === me?.id ? conn.receiver : conn.sender
-              if (!other) return null
-              return (
-                <div key={conn.id} className="glass-card p-4 flex items-center gap-4">
-                  <Avatar>
-                    <AvatarImage src={other.avatar || undefined} />
-                    <AvatarFallback>{getInitials(other.name)}</AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <Link href={`/users/${other.id}`} className="font-medium hover:text-primary">
-                      {other.name}
-                    </Link>
-                    <p className="text-sm text-muted-foreground">{roleLabel(other.role)}</p>
+        {isLoading && <CardSkeleton count={3} />}
+
+        {!isLoading && connectedPeers.length === 0 && (
+          <EmptyState
+            icon={Users}
+            title="No connections yet"
+            description="Discover people on the Network and send connection requests."
+            action={
+              <Link href="/network">
+                <Button className="glow-primary">Go to Network</Button>
+              </Link>
+            }
+          />
+        )}
+
+        <div className="grid gap-4 md:grid-cols-2">
+          {connectedPeers.map(({ connection, peer }) => (
+            <div
+              key={connection.id}
+              className="glass-card p-5 flex flex-col justify-between hover:border-primary/40 transition-all border-border/50"
+            >
+              <div className="space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <Avatar className="w-12 h-12 border border-border/40 shrink-0">
+                      <AvatarImage src={getMediaUrl(peer.avatar)} />
+                      <AvatarFallback className="bg-primary/20 text-primary font-bold text-sm">
+                        {getInitials(peer.name)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0">
+                      <Link
+                        href={`/users/${peer.id}`}
+                        className="font-bold text-foreground hover:text-primary transition-colors text-base truncate block"
+                      >
+                        {peer.name}
+                      </Link>
+                      <p className="text-sm text-muted-foreground">{roleLabel(peer.role)}</p>
+                    </div>
                   </div>
-                  <Link href="/messages">
-                    <span className="text-sm text-primary">Message</span>
-                  </Link>
+                  {matchByUserId[String(peer.id)] && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-primary bg-primary/10 border border-primary/20 px-2.5 py-1 rounded-full shrink-0">
+                      <Sparkles className="w-3 h-3" /> {matchByUserId[String(peer.id)]} Match
+                    </span>
+                  )}
                 </div>
-              )
-            })}
-          </div>
-        </section>
+
+                <div className="flex items-center gap-2 text-xs text-primary">
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>Connected</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-border/30">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleMessage(String(peer.id))}
+                  className="w-full h-8 text-xs font-semibold"
+                >
+                  <MessageSquare className="w-3.5 h-3.5 mr-1 text-muted-foreground" />
+                  Message
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  asChild
+                  className="w-full h-8 text-xs font-semibold"
+                >
+                  <Link href={`/users/${peer.id}`}>View Profile</Link>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => router.push(`/sessions?action=schedule&targetId=${peer.id}`)}
+                  className="w-full text-xs h-8 text-primary hover:bg-primary/5 border border-primary/10 col-span-2 mt-1 justify-center"
+                >
+                  <Calendar className="w-3.5 h-3.5 mr-1" />
+                  Schedule Meeting
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </AppShell>
   )

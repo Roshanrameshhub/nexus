@@ -11,6 +11,7 @@ from app.dependencies.auth import CurrentUser
 from app.models.connection import Connection, ConnectionStatus
 from app.models.message import Conversation, Message, conversation_participants
 from app.models.user import User
+from app.schemas.auth import MessageResponse as StatusMessageResponse
 from app.schemas.message import ConversationCreate, ConversationResponse, MessageCreate, MessageResponse
 from app.utils.user_mapper import to_user_public
 
@@ -241,6 +242,17 @@ async def get_conversation(
     conv = await _get_user_conversation(conversation_id, current_user.id, db)
     item = await _build_conversation_response(db, conv, current_user)
     return {"conversation": item}
+
+
+@router.delete("/conversations/{conversation_id}", response_model=StatusMessageResponse)
+async def delete_conversation(
+    conversation_id: UUID,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    conv = await _get_user_conversation(conversation_id, current_user.id, db)
+    await db.delete(conv)
+    return StatusMessageResponse(message="Conversation deleted")
 
 
 @router.get("/conversations/{conversation_id}/messages", response_model=dict)

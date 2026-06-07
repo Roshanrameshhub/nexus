@@ -41,7 +41,7 @@ export default function PublicProfilePage({ params }: { params: Promise<{ id: st
     try {
       const res = await createConversation.mutateAsync([id])
       const convId = res.data.conversation?.id
-      router.push(convId ? `/messages?c=${convId}` : '/messages')
+      router.push(convId ? `/messages?conversation=${convId}` : '/messages')
       toast.success('Conversation started')
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -158,10 +158,16 @@ export default function PublicProfilePage({ params }: { params: Promise<{ id: st
             ) : (
               <>
                 <ConnectButton userId={id} />
-                <Button variant="outline" onClick={handleMessage}>
-                  <MessageSquare className="w-4 h-4 mr-2" />
-                  Message
-                </Button>
+                {connectionStatus?.status === 'accepted' ? (
+                  <Button variant="outline" onClick={handleMessage}>
+                    <MessageSquare className="w-4 h-4 mr-2" />
+                    Message
+                  </Button>
+                ) : (
+                  <p className="text-xs text-muted-foreground self-center">
+                    Connect first to start a conversation.
+                  </p>
+                )}
                 <Button variant="outline" onClick={() => void handleShare()}>
                   <Share2 className="w-4 h-4 mr-2" /> Share
                 </Button>
