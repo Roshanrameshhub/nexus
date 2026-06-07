@@ -31,6 +31,7 @@ import { useAuthStore } from '@/lib/store'
 import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
 import {
   getLastMessagePreview,
+  mapConversation,
   mapConversations,
   mapMessage,
   type ConversationView,
@@ -89,10 +90,30 @@ function MessagesPageContent() {
       searchParams.get('conversation') ||
       searchParams.get('c') ||
       searchParams.get('convId')
-    if (!conversationId || conversations.length === 0) return
+    if (!conversationId || !user?.id) return
+
     const match = conversations.find((c) => c.id === conversationId)
-    if (match) setSelectedConversation(match)
-  }, [searchParams, conversations])
+    if (match) {
+      setSelectedConversation(match)
+      return
+    }
+
+    let cancelled = false
+    messagesAPI
+      .getConversation(conversationId)
+      .then((res) => {
+        if (cancelled) return
+        const raw = res.data.conversation
+        if (raw) setSelectedConversation(mapConversation(raw, user.id))
+      })
+      .catch(() => {
+        if (!cancelled) toast.error('Conversation not found')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [searchParams, conversations, user?.id])
 
   const loadMessages = useCallback(() => {
     if (!selectedConversation) return

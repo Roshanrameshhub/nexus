@@ -12,6 +12,7 @@ import { CardSkeleton } from '@/components/ui/loading-skeleton'
 import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
 import { useUser } from '@/lib/hooks/api/use-users'
 import { useCreateConversation } from '@/lib/hooks/api/use-messages'
+import { useConnectionStatus } from '@/lib/hooks/api/use-connections'
 import { useAuthStore } from '@/lib/store'
 import { ConnectButton } from '@/components/social/connect-button'
 import { getInitials, roleLabel } from '@/lib/utils/format'
@@ -30,15 +31,21 @@ export default function PublicProfilePage({ params }: { params: Promise<{ id: st
   const me = useAuthStore((s) => s.user)
   const { data: profile, isLoading } = useUser(id)
   const createConversation = useCreateConversation()
+  const { data: connectionStatus } = useConnectionStatus(id)
 
   const handleMessage = async () => {
+    if (connectionStatus?.status !== 'accepted') {
+      toast.error('Connect with them to start a conversation')
+      return
+    }
     try {
       const res = await createConversation.mutateAsync([id])
       const convId = res.data.conversation?.id
       router.push(convId ? `/messages?c=${convId}` : '/messages')
       toast.success('Conversation started')
-    } catch {
-      toast.error('Could not start conversation')
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      toast.error(typeof detail === 'string' ? detail : 'Could not start conversation')
     }
   }
 

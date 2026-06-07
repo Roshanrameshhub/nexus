@@ -15,6 +15,7 @@ import { usersAPI, messagesAPI, meetingsAPI, communitiesAPI } from '@/services/a
 import { useAuthStore } from '@/lib/store'
 import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
 import { useConnections } from '@/lib/hooks/api/use-connections'
+import { getConnectedUserIds } from '@/lib/mappers/connections'
 import { getInitials } from '@/lib/utils/format'
 import { countriesMatch, getCountryFromSearchParams } from '@/lib/utils/country'
 import { 
@@ -50,7 +51,12 @@ export default function NetworkPage() {
   useProtectedRoute()
   const router = useRouter()
   const user = useAuthStore((s) => s.user)
-  
+  const { data: connections = [] } = useConnections()
+  const connectedUserIds = useMemo(
+    () => getConnectedUserIds(connections, user?.id ?? ''),
+    [connections, user?.id]
+  )
+
   // Navigation & Tabs state
   const [activeTab, setActiveTab] = useState<'people' | 'communities'>('people')
   
@@ -131,6 +137,10 @@ export default function NetworkPage() {
 
   // Handlers
   const handleStartChat = async (userId: string) => {
+    if (!connectedUserIds.has(userId)) {
+      toast.error('Connect with them to start a conversation')
+      return
+    }
     try {
       const { data } = await messagesAPI.createConversation([userId])
       const convId = data.conversation?.id
@@ -139,9 +149,9 @@ export default function NetworkPage() {
       } else {
         router.push('/messages')
       }
-    } catch {
-      toast.error('Could not start conversation')
-      router.push('/messages')
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      toast.error(typeof detail === 'string' ? detail : 'Could not start conversation')
     }
   }
 

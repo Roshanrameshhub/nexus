@@ -90,7 +90,7 @@ import { toast } from 'sonner'
 // ─────────────────────────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────
-const feedFilters = ['All', 'Following', 'Ecosystem', 'AI', 'Funding'] as const
+const feedFilters = ['All', 'Following', 'My Connections', 'Ecosystem', 'AI', 'Funding'] as const
 const postTypes = ['text', 'startup_update', 'funding', 'product_launch', 'poll', 'event'] as const
 
 type MainTab = 'feed' | 'news' | 'github'
@@ -283,6 +283,8 @@ export default function FeedPage() {
 
   // ── Feed tab state ──────────────────────────────────────────────
   const [activeFilter, setActiveFilter] = useState<(typeof feedFilters)[number] | 'My Post'>('All')
+  const isMyPostFilter = activeFilter === 'My Post'
+  const isMyConnectionsFilter = activeFilter === 'My Connections'
   const [postType, setPostType] = useState<(typeof postTypes)[number]>('text')
   const [postContent, setPostContent] = useState('')
   const [uploadedMedia, setUploadedMedia] = useState<string[]>([])
@@ -296,7 +298,12 @@ export default function FeedPage() {
   const [viewerOpen, setViewerOpen] = useState(false)
   const [viewerImage, setViewerImage] = useState('')
   const [videoModal, setVideoModal] = useState<{ open: boolean; src: string }>({ open: false, src: '' })
-  const filterValue = activeFilter === 'All' || activeFilter === 'My Post' ? undefined : activeFilter.toLowerCase()
+  const filterValue =
+    activeFilter === 'All' || isMyPostFilter
+      ? undefined
+      : isMyConnectionsFilter
+        ? 'connections'
+        : activeFilter.toLowerCase()
 
 
   // ── News tab state ──────────────────────────────────────────────
@@ -963,26 +970,32 @@ export default function FeedPage() {
                       </div>
                     )}
                     {!feedLoading && (() => {
-                      const displayedPosts = activeFilter === 'My Post'
+                      const displayedPosts = isMyPostFilter
                         ? feedPosts.filter((p) => p.author.id === user?.id)
-                        : feedPosts.filter((p) => p.author.id !== user?.id)
+                        : isMyConnectionsFilter
+                          ? feedPosts
+                          : feedPosts.filter((p) => p.author.id !== user?.id)
                       if (displayedPosts.length === 0) {
                         return (
                           <div className="glass-card p-12 text-center">
                             <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
                             <p className="text-sm text-muted-foreground">
-                              {activeFilter === 'My Post'
+                              {isMyPostFilter
                                 ? "You haven't posted anything yet. Share your first update!"
-                                : 'No posts yet. Follow people to see their updates.'}
+                                : isMyConnectionsFilter
+                                  ? 'No posts from your connections yet. Connect with people on the Network page.'
+                                  : 'No posts yet. Follow people to see their updates.'}
                             </p>
                           </div>
                         )
                       }
                       return null
                     })()}
-                    {(activeFilter === 'My Post'
+                    {(isMyPostFilter
                       ? feedPosts.filter((p) => p.author.id === user?.id)
-                      : feedPosts.filter((p) => p.author.id !== user?.id)
+                      : isMyConnectionsFilter
+                        ? feedPosts
+                        : feedPosts.filter((p) => p.author.id !== user?.id)
                     ).map((post, index) => (
                       <motion.div
                         key={post.id}

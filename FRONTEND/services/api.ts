@@ -224,6 +224,7 @@ export interface MessageSendPayload {
 
 export const messagesAPI = {
   getConversations: () => api.get('/conversations'),
+  getConversation: (conversationId: string) => api.get(`/conversations/${conversationId}`),
   getMessages: (conversationId: string) =>
     api.get(`/conversations/${conversationId}/messages`),
   sendMessage: (conversationId: string, payload: string | MessageSendPayload) =>

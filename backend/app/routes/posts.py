@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.dependencies.auth import CurrentUser, get_current_user_optional
 from app.models.comment import Comment
+from app.models.connection import Connection, ConnectionStatus
 from app.models.follow import Follow
 from app.models.user import User, UserRole
 from app.models.post import Post, PostLike
@@ -54,6 +55,23 @@ async def get_feed(
                 Follow,
                 and_(Follow.followee_id == User.id, Follow.follower_id == current_user.id),
             )
+        elif filter_value == "connections" and current_user:
+            query = query.join(User, Post.user_id == User.id).join(
+                Connection,
+                and_(
+                    Connection.status == ConnectionStatus.accepted,
+                    or_(
+                        and_(
+                            Connection.sender_id == current_user.id,
+                            Connection.receiver_id == User.id,
+                        ),
+                        and_(
+                            Connection.sender_id == User.id,
+                            Connection.receiver_id == current_user.id,
+                        ),
+                    ),
+                ),
+            )
         elif filter_value in ("startups", "ecosystem"):
             query = query.join(User, Post.user_id == User.id).where(
                 or_(
@@ -94,6 +112,26 @@ async def get_feed(
         ).join(
             Follow,
             and_(Follow.followee_id == User.id, Follow.follower_id == current_user.id),
+        )
+    elif category and category.lower() == "connections" and current_user:
+        count_query = select(func.count()).select_from(Post).join(
+            User,
+            Post.user_id == User.id,
+        ).join(
+            Connection,
+            and_(
+                Connection.status == ConnectionStatus.accepted,
+                or_(
+                    and_(
+                        Connection.sender_id == current_user.id,
+                        Connection.receiver_id == User.id,
+                    ),
+                    and_(
+                        Connection.sender_id == User.id,
+                        Connection.receiver_id == current_user.id,
+                    ),
+                ),
+            ),
         )
     elif category and category.lower() in ("startups", "ecosystem"):
         count_query = select(func.count()).select_from(Post).join(
