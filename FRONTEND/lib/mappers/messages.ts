@@ -46,6 +46,7 @@ interface BackendMessage {
   file_url?: string
   mime_type?: string
   file_size?: number
+  is_read?: boolean
 }
 
 export function getLastMessagePreview(
@@ -117,12 +118,13 @@ export function mapMessage(
 ): MessageView {
   const message = raw as BackendMessage
   const messageType = resolveAttachmentMessageType(message.message_type, message.mime_type)
+  const isOwnMessage = String(message.sender_id) === String(currentUserId)
   return {
     id: String(message.id),
     content: message.content ?? '',
-    sender: String(message.sender_id) === String(currentUserId) ? 'me' : 'other',
+    sender: isOwnMessage ? 'me' : 'other',
     time: formatTimeAgo(message.timestamp),
-    read: false,
+    read: isOwnMessage ? Boolean(message.is_read) : undefined,
     messageType,
     fileName: message.file_name,
     fileUrl: message.file_url,

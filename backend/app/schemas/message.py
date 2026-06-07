@@ -32,6 +32,7 @@ class MessageResponse(BaseModel):
     mime_type: Optional[str] = None
     file_size: Optional[int] = None
     uploaded_at: Optional[datetime] = None
+    is_read: bool = False
 
     model_config = {"from_attributes": True}
 

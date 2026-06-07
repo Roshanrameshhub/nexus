@@ -52,7 +52,6 @@ function MessagesPageContent() {
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [messagesLoading, setMessagesLoading] = useState(false)
-  const [messageStatus, setMessageStatus] = useState<'sent' | 'delivered' | 'read'>('sent')
   const [messageReactions, setMessageReactions] = useState<Record<string, string[]>>({})
   const [isTyping, setIsTyping] = useState(false)
   const [typingUser, setTypingUser] = useState<string | null>(null)
@@ -125,7 +124,21 @@ function MessagesPageContent() {
     [user?.id, loadConversations, queryClient]
   )
 
-  useMessageSocket(selectedConversation?.id ?? null, handleSocketMessage)
+  const handleReadReceipt = useCallback(
+    (payload: { conversation_id?: string; message_ids?: string[] }) => {
+      if (payload.conversation_id && payload.conversation_id !== selectedConversation?.id) {
+        return
+      }
+      const ids = new Set(payload.message_ids ?? [])
+      if (ids.size === 0) return
+      setMessages((prev) =>
+        prev.map((m) => (ids.has(m.id) && m.sender === 'me' ? { ...m, read: true } : m))
+      )
+    },
+    [selectedConversation?.id]
+  )
+
+  useMessageSocket(selectedConversation?.id ?? null, handleSocketMessage, handleReadReceipt)
 
   const sendMessage = async () => {
     if (!messageInput.trim() || !selectedConversation) return
@@ -134,11 +147,9 @@ function MessagesPageContent() {
     setIsTyping(false)
     try {
       await messagesAPI.sendMessage(selectedConversation.id, content)
-      setMessageStatus('delivered')
       const { data } = await messagesAPI.getMessages(selectedConversation.id)
       setMessages((data.messages || []).map((m: any) => mapMessage(m, user!.id)))
       await loadConversations()
-      setTimeout(() => setMessageStatus('read'), 700)
     } catch {
       setMessageInput(content)
       toast.error('Failed to send message')
@@ -380,7 +391,7 @@ function MessagesPageContent() {
                       <div className={`flex items-center gap-1 mt-1 ${message.sender === 'me' ? 'justify-end' : ''}`}>
                         <span className="text-xs text-muted-foreground">{message.time}</span>
                         {message.sender === 'me' && (
-                          (message.read || messageStatus === 'read')
+                          message.read
                             ? <CheckCheck className="w-3 h-3 text-primary" />
                             : <Check className="w-3 h-3 text-muted-foreground" />
                         )}

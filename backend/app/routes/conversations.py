@@ -55,6 +55,7 @@ def _build_message_response(msg: Message, sender: User | None) -> MessageRespons
         mime_type=meta.get("mime_type"),
         file_size=meta.get("file_size"),
         uploaded_at=_parse_uploaded_at(meta),
+        is_read=msg.is_read,
     )
 
 
@@ -72,6 +73,7 @@ def _message_ws_payload(msg: Message) -> dict:
         "mime_type": meta.get("mime_type"),
         "file_size": meta.get("file_size"),
         "uploaded_at": meta.get("uploaded_at"),
+        "is_read": msg.is_read,
     }
 
 
@@ -218,9 +220,13 @@ async def get_messages(
     messages = result.scalars().all()
     sender_map = {current_user.id: current_user}
     responses = []
+    marked_read_ids: list[str] = []
+    notify_sender_ids: set[UUID] = set()
     for msg in messages:
         if msg.sender_id != current_user.id and not msg.is_read:
             msg.is_read = True
+            marked_read_ids.append(str(msg.id))
+            notify_sender_ids.add(msg.sender_id)
 
         sender = sender_map.get(msg.sender_id)
         if not sender:
@@ -228,7 +234,23 @@ async def get_messages(
             sender_map[msg.sender_id] = u
             sender = u
         responses.append(_build_message_response(msg, sender))
-    await db.flush()
+
+    if marked_read_ids:
+        await db.flush()
+        from app.websocket.manager import manager
+
+        read_payload = {
+            "type": "read",
+            "data": {
+                "conversation_id": str(conv.id),
+                "message_ids": marked_read_ids,
+            },
+        }
+        await manager.broadcast_to_conversation(str(conv.id), read_payload)
+        for sender_id in notify_sender_ids:
+            await manager.send_to_user(str(sender_id), read_payload)
+    else:
+        await db.flush()
     return {"messages": responses}
 
 
