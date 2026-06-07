@@ -14,8 +14,6 @@ import { ConnectButton } from '@/components/social/connect-button'
 import { usersAPI, messagesAPI, meetingsAPI, communitiesAPI } from '@/services/api'
 import { useAuthStore } from '@/lib/store'
 import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
-import { useConnections } from '@/lib/hooks/api/use-connections'
-import { getConnectedUserIds } from '@/lib/mappers/connections'
 import { getInitials } from '@/lib/utils/format'
 import { countriesMatch, getCountryFromSearchParams } from '@/lib/utils/country'
 import { 
@@ -51,11 +49,6 @@ export default function NetworkPage() {
   useProtectedRoute()
   const router = useRouter()
   const user = useAuthStore((s) => s.user)
-  const { data: connections = [] } = useConnections()
-  const connectedUserIds = useMemo(
-    () => getConnectedUserIds(connections, user?.id ?? ''),
-    [connections, user?.id]
-  )
 
   // Navigation & Tabs state
   const [activeTab, setActiveTab] = useState<'people' | 'communities'>('people')
@@ -137,10 +130,6 @@ export default function NetworkPage() {
 
   // Handlers
   const handleStartChat = async (userId: string) => {
-    if (!connectedUserIds.has(userId)) {
-      toast.error('Connect with them to start a conversation')
-      return
-    }
     try {
       const { data } = await messagesAPI.createConversation([userId])
       const convId = data.conversation?.id
@@ -802,21 +791,15 @@ export default function NetworkPage() {
                         <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-border/30">
                           <ConnectButton userId={rec.id} size="sm" />
 
-                          {connectedUserIds.has(rec.id) ? (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleStartChat(rec.id)}
-                              className="w-full h-8 text-xs font-semibold"
-                            >
-                              <MessageSquare className="w-3.5 h-3.5 mr-1 text-muted-foreground" />
-                              Message
-                            </Button>
-                          ) : (
-                            <p className="text-[10px] text-muted-foreground text-center leading-tight flex items-center justify-center px-1">
-                              Connect first to start a conversation.
-                            </p>
-                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleStartChat(rec.id)}
+                            className="w-full h-8 text-xs font-semibold"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 mr-1 text-muted-foreground" />
+                            Message
+                          </Button>
 
                           <Button
                             variant="outline"

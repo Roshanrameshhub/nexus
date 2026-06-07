@@ -2,13 +2,12 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import and_, desc, func, or_, select
+from sqlalchemy import and_, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.dependencies.auth import CurrentUser
-from app.models.connection import Connection, ConnectionStatus
 from app.models.message import Conversation, Message, conversation_participants
 from app.models.user import User
 from app.schemas.auth import MessageResponse as StatusMessageResponse
@@ -115,30 +114,6 @@ async def _find_existing_conversation(
     return None
 
 
-async def _users_are_connected(db: AsyncSession, user_a: UUID, user_b: UUID) -> bool:
-    result = await db.execute(
-        select(Connection.id).where(
-            Connection.status == ConnectionStatus.accepted,
-            or_(
-                and_(Connection.sender_id == user_a, Connection.receiver_id == user_b),
-                and_(Connection.sender_id == user_b, Connection.receiver_id == user_a),
-            ),
-        )
-    )
-    return result.scalar_one_or_none() is not None
-
-
-async def _require_connected_with_participants(
-    db: AsyncSession, current_user: CurrentUser, participant_ids: set[UUID]
-) -> None:
-    for other_id in participant_ids - {current_user.id}:
-        if not await _users_are_connected(db, current_user.id, other_id):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Connect with this user to start a conversation",
-            )
-
-
 async def _unread_count(db: AsyncSession, conversation_id: UUID, user_id: UUID) -> int:
     result = await db.execute(
         select(func.count())
@@ -207,8 +182,6 @@ async def create_conversation(
     participant_ids = set(body.participant_ids) | {current_user.id}
     if len(participant_ids) < 2:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Need at least one other participant")
-
-    await _require_connected_with_participants(db, current_user, participant_ids)
 
     existing = await _find_existing_conversation(db, participant_ids)
     if existing:
@@ -312,13 +285,6 @@ async def send_message(
     db: AsyncSession = Depends(get_db),
 ):
     conv = await _get_user_conversation(conversation_id, current_user.id, db)
-    for participant in conv.participants:
-        if participant.id != current_user.id:
-            if not await _users_are_connected(db, current_user.id, participant.id):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Connect with this user to start a conversation",
-                )
 
     message_type = (body.message_type or "text").lower()
     attachment_meta = None
