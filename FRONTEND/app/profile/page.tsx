@@ -11,6 +11,7 @@ import {
   Linkedin,
   ExternalLink,
   Edit,
+  Settings,
   Share2,
   MoreHorizontal,
   Code,
@@ -181,6 +182,12 @@ export default function ProfilePage() {
                         <ExternalLink className="w-4 h-4 mr-2" />
                         View Public
                       </Button>
+                      <Link href="/profile/settings">
+                        <Button variant="outline" size="sm">
+                          <Settings className="w-4 h-4 mr-2" />
+                          Settings
+                        </Button>
+                      </Link>
                       <Link href="/profile/complete">
                         <Button className="glow-primary">
                           <Edit className="w-4 h-4 mr-2" />

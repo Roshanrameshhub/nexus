@@ -402,6 +402,12 @@ export const meetingsAPI = {
   updateNotes: (id: string, data: { notes: string }) => api.patch(`/meetings/${id}/notes`, data),
 }
 
+export const verificationAPI = {
+  getStatus: () => api.get('/verification/me'),
+  submit: (data: { document_type: 'college_id' | 'company_id'; document_url: string }) =>
+    api.post('/verification', data),
+}
+
 export const adminAPI = {
   overview: () => api.get('/admin/overview'),
   users: (params?: { q?: string; suspended?: boolean; limit?: number; offset?: number }) => {
