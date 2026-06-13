@@ -13,8 +13,7 @@ import {
   Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { uploadAPI, verificationAPI } from '@/services/api'
-import { getMediaUrl } from '@/lib/config/api'
+import { verificationAPI } from '@/services/api'
 import { getErrorMessage } from '@/services/api'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -162,27 +161,8 @@ export function VerificationSection() {
     setSubmitting(true)
     try {
       setUploadProgress('uploading')
-      const isPdf = selectedFile.type === 'application/pdf' || selectedFile.name.toLowerCase().endsWith('.pdf')
-      let documentUrl = ''
-
-      if (isPdf) {
-        const { data } = await uploadAPI.uploadFile(selectedFile)
-        documentUrl = data.file?.file_url || data.files?.[0]?.file_url || ''
-      } else {
-        const { data } = await uploadAPI.uploadImages([selectedFile])
-        documentUrl = data.urls?.[0] || data.files?.[0]?.file_url || ''
-      }
-
-      if (!documentUrl) {
-        throw new Error('Upload did not return a file URL')
-      }
-
+      await verificationAPI.submit(documentType, selectedFile)
       setUploadProgress('done')
-      await verificationAPI.submit({
-        document_type: documentType,
-        document_url: documentUrl,
-      })
-
       toast.success('Verification submitted for review')
       clearFile()
       await loadStatus()
@@ -191,6 +171,17 @@ export function VerificationSection() {
       toast.error(getErrorMessage(err))
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const viewMyDocument = async () => {
+    try {
+      const { data } = await verificationAPI.getDocument()
+      const url = URL.createObjectURL(data)
+      window.open(url, '_blank', 'noopener,noreferrer')
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch {
+      toast.error('Could not open document')
     }
   }
 
@@ -396,17 +387,13 @@ export function VerificationSection() {
       )}
 
       {state?.latest_request && status !== 'not_verified' && !showUpload && (
-        <p className="text-xs text-muted-foreground">
-          Last submitted document:{' '}
-          <a
-            href={getMediaUrl(state.latest_request.document_url)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline"
-          >
-            View file
-          </a>
-        </p>
+        <button
+          type="button"
+          onClick={() => void viewMyDocument()}
+          className="text-xs text-primary hover:underline"
+        >
+          View submitted document
+        </button>
       )}
     </motion.section>
   )

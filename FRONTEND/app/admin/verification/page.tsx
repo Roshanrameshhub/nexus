@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AdminShell } from '@/components/layout/admin-shell'
 import { Button } from '@/components/ui/button'
-import { getMediaUrl } from '@/lib/config/api'
 import { adminAPI } from '@/services/api'
 import { toast } from 'sonner'
 
@@ -26,6 +25,17 @@ export default function AdminVerificationPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  const viewDocument = async (id: string) => {
+    try {
+      const { data } = await adminAPI.verificationDocument(id)
+      const url = URL.createObjectURL(data)
+      window.open(url, '_blank', 'noopener,noreferrer')
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch {
+      toast.error('Document not found. Ask the user to resubmit.')
+    }
+  }
 
   const approve = async (id: string) => {
     try {
@@ -55,14 +65,13 @@ export default function AdminVerificationPage() {
           <div key={item.id} className="rounded-lg border border-slate-800 bg-slate-900/60 p-4">
             <p className="font-medium text-white">{item.user_name}</p>
             <p className="text-sm text-slate-400">{item.document_type}</p>
-            <a
-              href={getMediaUrl(item.document_url)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-blue-400"
+            <button
+              type="button"
+              onClick={() => void viewDocument(item.id)}
+              className="text-xs text-blue-400 hover:underline"
             >
               View document
-            </a>
+            </button>
             <div className="flex gap-2 mt-3">
               <Button size="sm" onClick={() => void approve(item.id)}>Approve</Button>
               <Button size="sm" variant="outline" onClick={() => void reject(item.id)}>Reject</Button>

@@ -404,8 +404,15 @@ export const meetingsAPI = {
 
 export const verificationAPI = {
   getStatus: () => api.get('/verification/me'),
-  submit: (data: { document_type: 'college_id' | 'company_id'; document_url: string }) =>
-    api.post('/verification', data),
+  getDocument: () => api.get('/verification/document', { responseType: 'blob' }),
+  submit: (documentType: 'college_id' | 'company_id', file: File) => {
+    const formData = new FormData()
+    formData.append('document_type', documentType)
+    formData.append('file', file)
+    return api.post('/verification', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
 }
 
 export const adminAPI = {
@@ -434,6 +441,8 @@ export const adminAPI = {
   unpinPost: (postId: string) => api.delete(`/admin/pinned/${postId}`),
   verifications: (status?: string) =>
     api.get(`/admin/verification${status ? `?status=${status}` : ''}`),
+  verificationDocument: (id: string) =>
+    api.get(`/admin/verification/${id}/document`, { responseType: 'blob' }),
   approveVerification: (id: string, note?: string) =>
     api.post(`/admin/verification/${id}/approve`, { note }),
   rejectVerification: (id: string, note?: string) =>

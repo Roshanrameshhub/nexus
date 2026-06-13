@@ -295,6 +295,12 @@ async def _apply_schema_patches(conn) -> None:
     await conn.execute(
         text("ALTER TABLE posts ADD COLUMN IF NOT EXISTS pin_order INTEGER")
     )
+    await conn.execute(
+        text("ALTER TABLE verification_requests ADD COLUMN IF NOT EXISTS document_content BYTEA")
+    )
+    await conn.execute(
+        text("ALTER TABLE verification_requests ADD COLUMN IF NOT EXISTS document_mime VARCHAR(100)")
+    )
 
 
 

@@ -3,6 +3,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -45,6 +46,7 @@ from app.schemas.admin import (
 )
 from app.schemas.auth import MessageResponse
 from app.services.audit_log import log_admin_action
+from app.utils.paths import UPLOAD_DIR
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -363,6 +365,36 @@ async def list_verifications(
         for v in result.scalars().all()
     ]
     return {"verifications": items}
+
+
+@router.get("/verification/{request_id}/document")
+async def get_verification_document(
+    request_id: UUID,
+    admin: SuperAdminUser,
+    db: AsyncSession = Depends(get_db),
+):
+    req = await db.get(VerificationRequest, request_id)
+    if not req:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Verification request not found")
+
+    if req.document_content:
+        return Response(
+            content=req.document_content,
+            media_type=req.document_mime or "application/octet-stream",
+            headers={"Content-Disposition": f'inline; filename="verification-{request_id}"'},
+        )
+
+    filename = req.document_url.rsplit("/", 1)[-1] if req.document_url else ""
+    file_path = UPLOAD_DIR / filename
+    if not filename or not file_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+
+    return FileResponse(
+        path=file_path,
+        media_type=req.document_mime or "application/octet-stream",
+        filename=filename,
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.post("/verification/{request_id}/approve", response_model=MessageResponse)
