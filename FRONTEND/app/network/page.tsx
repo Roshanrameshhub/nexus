@@ -44,6 +44,7 @@ import { UserNameWithBadge } from '@/components/social/verified-badge'
 import type { ApiUserRecommendation, ApiCommunity } from '@/lib/types/api'
 import { motion, AnimatePresence } from 'framer-motion'
 import { openGmailCompose } from './email-actions'
+import { toast } from 'sonner'
 
 export default function NetworkPage() {
   useProtectedRoute()
