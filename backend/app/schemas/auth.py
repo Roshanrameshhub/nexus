@@ -20,6 +20,7 @@ class SignupRequest(BaseModel):
     college: Optional[str] = None
     company: Optional[str] = None
     role_details: Optional[dict] = None
+    referral_code: Optional[str] = None
 
 
 class TokenResponse(BaseModel):

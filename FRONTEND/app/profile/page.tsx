@@ -30,6 +30,7 @@ import { useAuthStore } from '@/lib/store'
 import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
 import { mapPostToFeedView, type FeedPostView } from '@/lib/mappers/posts'
 import { getInitials, roleLabel } from '@/lib/utils/format'
+import { VerifiedBadge } from '@/components/social/verified-badge'
 import { toast } from 'sonner'
 import {
   getOrganizationSectionTitle,
@@ -160,11 +161,13 @@ export default function ProfilePage() {
                 <div className="flex-1 pb-4">
                   <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <h1 className="text-2xl font-bold text-foreground">{displayName}</h1>
-                        <svg className="w-5 h-5 text-primary" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
+                        <VerifiedBadge
+                          verified={profile?.is_verified}
+                          variant="badge"
+                          label="Verified Member"
+                        />
                       </div>
                       <p className="text-muted-foreground">{headline || displayRole}</p>
                       {profile?.country && (

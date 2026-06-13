@@ -301,6 +301,12 @@ async def _apply_schema_patches(conn) -> None:
     await conn.execute(
         text("ALTER TABLE verification_requests ADD COLUMN IF NOT EXISTS document_mime VARCHAR(100)")
     )
+    await conn.execute(
+        text("ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_id UUID")
+    )
+    await conn.execute(
+        text("ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_count INTEGER NOT NULL DEFAULT 0")
+    )
 
 
 

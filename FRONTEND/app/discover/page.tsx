@@ -16,6 +16,7 @@ import { useRecommendations, useUserSearch } from '@/lib/hooks/api/use-users'
 import { useCreateConversation } from '@/lib/hooks/api/use-messages'
 import { useAuthStore } from '@/lib/store'
 import { ConnectButton } from '@/components/social/connect-button'
+import { UserNameWithBadge } from '@/components/social/verified-badge'
 import { getInitials, roleLabel } from '@/lib/utils/format'
 
 export default function DiscoverPage() {
@@ -77,6 +78,7 @@ export default function DiscoverPage() {
               bio?: string | null
               skills?: string[]
               match?: string
+              is_verified?: boolean
             }) => (
               <div key={person.id} className="glass-card p-4 flex items-center gap-4">
                 <Link href={`/users/${person.id}`}>
@@ -88,8 +90,14 @@ export default function DiscoverPage() {
                   </Avatar>
                 </Link>
                 <div className="flex-1 min-w-0">
-                  <Link href={`/users/${person.id}`} className="font-semibold hover:text-primary">
-                    {person.name}
+                  <Link href={`/users/${person.id}`} className="hover:text-primary block">
+                    <UserNameWithBadge
+                      name={person.name}
+                      verified={person.is_verified}
+                      layout="stacked"
+                      badgeLabel="Verified Member"
+                      nameClassName="font-semibold"
+                    />
                   </Link>
                   <p className="text-sm text-muted-foreground">{roleLabel(person.role)}</p>
                   {person.bio && (

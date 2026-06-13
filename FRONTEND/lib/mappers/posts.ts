@@ -33,7 +33,7 @@ export function mapPostToFeedView(post: ApiPost): FeedPostView {
       name: post.author.name,
       role: roleLabel(post.author.role),
       avatar: post.author.avatar,
-      verified: false,
+      verified: post.author.is_verified ?? false,
     },
     content: post.content,
     time: formatTimeAgo(post.created_at),

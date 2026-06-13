@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -51,6 +51,13 @@ export default function SignupPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
+  const [referralCode, setReferralCode] = useState('')
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const ref = new URLSearchParams(window.location.search).get('ref')
+    if (ref) setReferralCode(ref.trim())
+  }, [])
   
   const [formData, setFormData] = useState({
     name: '',
@@ -131,7 +138,8 @@ export default function SignupPage() {
         college: college,
         company: company,
         role_details: roleDetails,
-      } as any)
+        referral_code: referralCode || undefined,
+      })
 
       const u = data.user
       setAuth(

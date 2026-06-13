@@ -149,6 +149,11 @@ export const authAPI = {
     name: string
     role?: string
     skills?: string[]
+    country?: string
+    college?: string
+    company?: string
+    role_details?: Record<string, unknown>
+    referral_code?: string
   }) => api.post('/auth/signup', data),
   login: (data: { email: string; password: string }) => api.post('/auth/login', data),
   logout: () => api.post('/auth/logout'),
@@ -400,6 +405,10 @@ export const meetingsAPI = {
     }
   ) => api.patch(`/meetings/${id}/reschedule`, data),
   updateNotes: (id: string, data: { notes: string }) => api.patch(`/meetings/${id}/notes`, data),
+}
+
+export const referralsAPI = {
+  getMe: () => api.get('/referrals/me'),
 }
 
 export const verificationAPI = {

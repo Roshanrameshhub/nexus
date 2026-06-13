@@ -8,6 +8,7 @@ export interface AuthUser {
   avatar?: string | null
   role: string
   platform_role?: string
+  is_verified?: boolean
   skills?: string[]
   bio?: string | null
 }

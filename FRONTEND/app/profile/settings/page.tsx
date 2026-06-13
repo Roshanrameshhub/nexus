@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { ArrowLeft, Settings } from 'lucide-react'
 import { AppShell } from '@/components/layout/app-shell'
 import { VerificationSection } from '@/components/profile/verification-section'
+import { ReferralSection } from '@/components/profile/referral-section'
 import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
 import { Button } from '@/components/ui/button'
 
@@ -27,7 +28,7 @@ export default function ProfileSettingsPage() {
               Profile Settings
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Manage your account preferences and verification.
+              Manage your account preferences, verification, and referrals.
             </p>
           </div>
           <Link href="/profile/complete">
@@ -38,6 +39,7 @@ export default function ProfileSettingsPage() {
         </div>
 
         <VerificationSection />
+        <ReferralSection />
       </div>
     </AppShell>
   )

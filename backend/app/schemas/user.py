@@ -64,6 +64,7 @@ class UserPublic(BaseModel):
     skills: List[str] = []
     avatar: Optional[str] = None
     role: UserRoleType
+    is_verified: bool = False
     github_username: Optional[str] = None
     created_at: Optional[datetime] = None
     country: Optional[str] = None
@@ -89,3 +90,4 @@ class UserRecommendation(BaseModel):
     company: Optional[str] = None
     role_details: Optional[dict] = None
     match_factors: List[str] = []
+    is_verified: bool = False

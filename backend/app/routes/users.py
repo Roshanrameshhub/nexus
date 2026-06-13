@@ -73,6 +73,7 @@ async def get_recommendations(
                 company=u.company,
                 role_details=u.role_details,
                 match_factors=match_factors,
+                is_verified=bool(getattr(u, "is_verified", False)),
             )
         )
         

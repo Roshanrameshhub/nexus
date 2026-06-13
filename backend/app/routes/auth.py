@@ -32,6 +32,7 @@ from app.schemas.auth import (
     TokenResponse,
 )
 from app.services.email_service import send_password_reset_email, send_welcome_email
+from app.services.referral_service import apply_referral_on_signup, ensure_referral_code
 from app.utils.helpers import generate_username
 from app.utils.user_mapper import to_user_response
 
@@ -71,6 +72,10 @@ async def signup(body: SignupRequest, db: AsyncSession = Depends(get_db)):
     )
 
     db.add(user)
+    await db.flush()
+
+    await ensure_referral_code(db, user)
+    await apply_referral_on_signup(db, user, body.referral_code)
     await db.flush()
 
     await send_welcome_email(user.email, user.name)

@@ -14,6 +14,7 @@ from app.routes import (
     notifications,
     posts,
     reactions,
+    referrals,
     search,
     startups,
     teams,
@@ -47,5 +48,6 @@ api_router.include_router(search.router)
 api_router.include_router(topics.router)
 api_router.include_router(upload.router)
 api_router.include_router(verification.router)
+api_router.include_router(referrals.router)
 api_router.include_router(github.router)
 api_router.include_router(meetings.router)

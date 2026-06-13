@@ -46,6 +46,10 @@ class User(Base):
     login_streak_current: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     login_streak_longest: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     referral_code: Mapped[str | None] = mapped_column(String(32), nullable=True, unique=True)
+    referred_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
+    referral_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

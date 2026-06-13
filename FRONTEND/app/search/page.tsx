@@ -8,6 +8,7 @@ import { AppShell } from '@/components/layout/app-shell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { CardSkeleton } from '@/components/ui/loading-skeleton'
+import { UserNameWithBadge } from '@/components/social/verified-badge'
 import { searchAPI } from '@/services/api'
 import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
 import { queryKeys } from '@/lib/query-keys'
@@ -84,7 +85,13 @@ export default function SearchPage() {
                 <Link key={user.id} href={`/users/${user.id}`} className="glass-card p-4 hover:border-primary/40 transition-all">
                   <div className="flex items-center justify-between gap-4">
                     <div>
-                      <div className="font-medium text-foreground">{user.name}</div>
+                      <UserNameWithBadge
+                        name={user.name}
+                        verified={user.is_verified}
+                        layout="stacked"
+                        badgeLabel="Verified Member"
+                        nameClassName="font-medium text-foreground"
+                      />
                       <div className="text-sm text-muted-foreground">{user.role}</div>
                     </div>
                     <div className="text-xs text-muted-foreground">@{user.name.split(' ')[0].toLowerCase()}</div>
@@ -121,7 +128,12 @@ export default function SearchPage() {
             <div className="grid gap-3">
               {posts.map((post: any) => (
                 <Link key={post.id} href={`/posts/${post.id}`} className="glass-card p-4 hover:border-primary/40 transition-all">
-                  <div className="font-medium text-foreground truncate">{post.author.name}</div>
+                  <UserNameWithBadge
+                    name={post.author.name}
+                    verified={post.author.is_verified}
+                    badgeVariant="icon"
+                    nameClassName="font-medium text-foreground truncate"
+                  />
                   <p className="text-sm text-muted-foreground line-clamp-2">{post.content}</p>
                 </Link>
               ))}

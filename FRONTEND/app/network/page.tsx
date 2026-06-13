@@ -40,7 +40,7 @@ import {
   Bookmark,
   Users2,
 } from 'lucide-react'
-import { toast } from 'sonner'
+import { UserNameWithBadge } from '@/components/social/verified-badge'
 import type { ApiUserRecommendation, ApiCommunity } from '@/lib/types/api'
 import { motion, AnimatePresence } from 'framer-motion'
 import { openGmailCompose } from './email-actions'
@@ -605,9 +605,15 @@ export default function NetworkPage() {
                             <div className="min-w-0 pr-16">
                               <Link
                                 href={`/users/${rec.id}`}
-                                className="font-bold text-foreground hover:text-primary transition-colors text-base truncate block"
+                                className="hover:text-primary transition-colors block"
                               >
-                                {rec.name}
+                                <UserNameWithBadge
+                                  name={rec.name}
+                                  verified={rec.is_verified}
+                                  layout="stacked"
+                                  badgeLabel="Verified Member"
+                                  nameClassName="font-bold text-base text-foreground"
+                                />
                               </Link>
                               
                               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-secondary/80 text-secondary-foreground mt-0.5 border border-border/40">

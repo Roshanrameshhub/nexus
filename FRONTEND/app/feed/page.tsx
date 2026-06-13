@@ -82,7 +82,7 @@ import { useAuthStore } from '@/lib/store'
 import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
 import { mapPostToFeedView, type FeedPostView } from '@/lib/mappers/posts'
 import { getInitials } from '@/lib/utils/format'
-import { getMediaUrl } from '@/lib/config/api'
+import { UserNameWithBadge } from '@/components/social/verified-badge'
 import { MediaViewer } from '@/components/ui/media-viewer'
 import type { ApiUserRecommendation } from '@/lib/types/api'
 import { toast } from 'sonner'
@@ -1013,12 +1013,12 @@ export default function FeedPage() {
                           </Avatar>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
-                              <span className="font-semibold text-foreground">{post.author.name}</span>
-                              {post.author.verified && (
-                                <svg className="w-4 h-4 text-primary" viewBox="0 0 24 24" fill="currentColor">
-                                  <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                              )}
+                              <UserNameWithBadge
+                                name={post.author.name}
+                                verified={post.author.verified}
+                                badgeVariant="icon"
+                                nameClassName="font-semibold text-foreground"
+                              />
                               <span className="text-xs text-muted-foreground">·</span>
                               <span className="text-xs text-muted-foreground">{post.time}</span>
                               <Button variant="ghost" size="sm" className="ml-auto p-1 h-auto">

@@ -31,6 +31,7 @@ def to_user_public(user: User, include_email: bool = False) -> UserPublic:
         skills=user.skills or [],
         avatar=user.profile_image,
         role=user.role.value if hasattr(user.role, "value") else user.role,
+        is_verified=bool(getattr(user, "is_verified", False)),
         github_username=user.github_username,
         created_at=user.created_at,
         country=user.country,

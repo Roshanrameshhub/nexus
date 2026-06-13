@@ -14,6 +14,7 @@ import { useUser } from '@/lib/hooks/api/use-users'
 import { useCreateConversation } from '@/lib/hooks/api/use-messages'
 import { useAuthStore } from '@/lib/store'
 import { ConnectButton } from '@/components/social/connect-button'
+import { VerifiedBadge } from '@/components/social/verified-badge'
 import { getInitials, roleLabel } from '@/lib/utils/format'
 import {
   getOrganizationSectionTitle,
@@ -100,7 +101,10 @@ export default function PublicProfilePage({ params }: { params: Promise<{ id: st
                 {getInitials(profile.name)}
               </AvatarFallback>
             </Avatar>
-            <h1 className="text-2xl font-bold">{profile.name}</h1>
+            <h1 className="text-2xl font-bold flex flex-wrap items-center justify-center gap-2">
+              {profile.name}
+              <VerifiedBadge verified={profile.is_verified} variant="badge" label="Verified Member" />
+            </h1>
             <p className="text-muted-foreground">{headline}</p>
             <p className="text-xs text-muted-foreground mt-1">{roleLabel(profile.role)}</p>
             {profile.country && (

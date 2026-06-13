@@ -20,6 +20,7 @@ import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
 import { useConnections } from '@/lib/hooks/api/use-connections'
 import { getConnectionPeer } from '@/lib/mappers/connections'
 import { getInitials, roleLabel } from '@/lib/utils/format'
+import { UserNameWithBadge } from '@/components/social/verified-badge'
 import { getMediaUrl } from '@/lib/config/api'
 import { useAuthStore } from '@/lib/store'
 import { messagesAPI, usersAPI } from '@/services/api'
@@ -118,9 +119,15 @@ export default function ConnectionsPage() {
                     <div className="min-w-0">
                       <Link
                         href={`/users/${peer.id}`}
-                        className="font-bold text-foreground hover:text-primary transition-colors text-base truncate block"
+                        className="hover:text-primary transition-colors block"
                       >
-                        {peer.name}
+                        <UserNameWithBadge
+                          name={peer.name}
+                          verified={peer.is_verified}
+                          layout="stacked"
+                          badgeLabel="Verified Member"
+                          nameClassName="font-bold text-base text-foreground"
+                        />
                       </Link>
                       <p className="text-sm text-muted-foreground">{roleLabel(peer.role)}</p>
                     </div>

@@ -12,6 +12,7 @@ import { CardSkeleton } from '@/components/ui/loading-skeleton'
 import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
 import { useCommentPost, useLikePost, usePost } from '@/lib/hooks/api/use-posts'
 import { mapPostToFeedView } from '@/lib/mappers/posts'
+import { UserNameWithBadge } from '@/components/social/verified-badge'
 import { formatTimeAgo, getInitials } from '@/lib/utils/format'
 
 export default function PostDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -78,7 +79,12 @@ export default function PostDetailPage({ params }: { params: Promise<{ id: strin
             </Avatar>
             <div className="flex-1">
               <div className="flex items-center gap-2">
-                <span className="font-semibold">{view.author.name}</span>
+                <UserNameWithBadge
+                  name={view.author.name}
+                  verified={view.author.verified}
+                  badgeVariant="icon"
+                  nameClassName="font-semibold"
+                />
                 <span className="text-sm text-muted-foreground">· {view.time}</span>
               </div>
               <p className="mt-3 text-foreground whitespace-pre-wrap">{view.content}</p>
