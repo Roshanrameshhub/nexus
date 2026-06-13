@@ -14,6 +14,14 @@ from app.models.news_bookmark import NewsBookmark
 from app.models.news_interaction import NewsLike, NewsComment
 from app.models.workspace import FileAttachment, Milestone, Task, TaskPriority, TaskStatus, Workspace
 from app.models.meeting import Meeting
+from app.models.platform import PlatformRole
+from app.models.admin_console import (
+    AdminAnnouncement,
+    AdminAuditLog,
+    ContentReport,
+    Referral,
+    VerificationRequest,
+)
 
 __all__ = [
     "User",
@@ -52,4 +60,10 @@ __all__ = [
     "Milestone",
     "FileAttachment",
     "Meeting",
+    "PlatformRole",
+    "AdminAnnouncement",
+    "AdminAuditLog",
+    "ContentReport",
+    "Referral",
+    "VerificationRequest",
 ]

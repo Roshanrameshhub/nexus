@@ -25,6 +25,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           email: String(u.email ?? ''),
           avatar: (u.avatar as string | null | undefined) ?? null,
           role: String(u.role ?? ''),
+          platform_role: String(u.platform_role ?? 'USER'),
           skills: (u.skills as string[] | undefined) ?? [],
           bio: (u.bio as string | null | undefined) ?? null,
         })

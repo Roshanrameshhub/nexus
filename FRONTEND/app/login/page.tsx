@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { authAPI, getErrorMessage } from '@/services/api'
 import { useAuthStore } from '@/lib/store'
+import { getPostLoginPath } from '@/lib/auth-utils'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -33,13 +34,14 @@ export default function LoginPage() {
           email: u.email,
           avatar: u.avatar,
           role: u.role,
+          platform_role: u.platform_role ?? 'USER',
           skills: u.skills || [],
           bio: u.bio,
         },
         data.access_token,
         data.refresh_token
       )
-      router.push('/dashboard')
+      router.push(getPostLoginPath({ platform_role: u.platform_role, country: u.country }))
     } catch (err) {
       const errorMessage = getErrorMessage(err)
       setError(errorMessage)

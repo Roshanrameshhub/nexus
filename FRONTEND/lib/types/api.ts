@@ -42,6 +42,9 @@ export interface ApiUser {
   skills?: string[]
   avatar?: string | null
   role: UserRole | string
+  platform_role?: string
+  is_verified?: boolean
+  last_active_at?: string | null
   github_username?: string | null
   country?: string | null
   college?: string | null

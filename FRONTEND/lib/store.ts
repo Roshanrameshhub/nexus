@@ -7,6 +7,7 @@ export interface AuthUser {
   email: string
   avatar?: string | null
   role: string
+  platform_role?: string
   skills?: string[]
   bio?: string | null
 }

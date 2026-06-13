@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import axios from 'axios'
 import { authAPI } from '@/services/api'
 import { useAuthStore } from '@/lib/store'
+import { getGooglePostLoginPath } from '@/lib/auth-utils'
 
 declare global {
   interface Window {
@@ -48,13 +49,14 @@ export function GoogleSignInButton({ label = 'Continue with Google' }: GoogleSig
             email: u.email,
             avatar: u.avatar,
             role: u.role,
+            platform_role: u.platform_role ?? 'USER',
             skills: u.skills || [],
             bio: u.bio,
           },
           data.access_token,
           data.refresh_token
         )
-        router.push(u.country ? '/dashboard' : '/profile/complete')
+        router.push(getGooglePostLoginPath({ platform_role: u.platform_role, country: u.country }))
       } catch (err) {
         if (axios.isAxiosError(err)) {
           const detail = err.response?.data?.detail

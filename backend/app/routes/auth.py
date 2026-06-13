@@ -124,6 +124,12 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
                 detail="Invalid credentials",
             )
 
+        if user.is_suspended:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account suspended",
+            )
+
         logger.info(f"[AUTH] Password verified for user: {body.email}")
         logger.debug(f"[AUTH] Creating access token for user: {user.id}")
         token = create_access_token(str(user.id))
@@ -157,6 +163,9 @@ async def refresh_token(body: RefreshTokenRequest, db: AsyncSession = Depends(ge
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+    if user.is_suspended:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account suspended")
 
     access = create_access_token(str(user.id))
     new_refresh = create_refresh_token(str(user.id))
@@ -255,6 +264,9 @@ async def google_auth(
         if name and user.name == user.email.split("@")[0]:
             user.name = name
         await db.flush()
+
+    if user.is_suspended:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account suspended")
 
     access_token = create_access_token(str(user.id))
     refresh_token = create_refresh_token(str(user.id))

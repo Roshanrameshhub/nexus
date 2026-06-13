@@ -49,6 +49,9 @@ class UserUpdate(BaseModel):
 class UserResponse(UserBase):
     id: UUID
     github_username: Optional[str] = None
+    platform_role: str = "USER"
+    is_verified: bool = False
+    last_active_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 

@@ -402,4 +402,48 @@ export const meetingsAPI = {
   updateNotes: (id: string, data: { notes: string }) => api.patch(`/meetings/${id}/notes`, data),
 }
 
+export const adminAPI = {
+  overview: () => api.get('/admin/overview'),
+  users: (params?: { q?: string; suspended?: boolean; limit?: number; offset?: number }) => {
+    const search = new URLSearchParams()
+    if (params?.q) search.set('q', params.q)
+    if (params?.suspended !== undefined) search.set('suspended', String(params.suspended))
+    if (params?.limit) search.set('limit', String(params.limit))
+    if (params?.offset) search.set('offset', String(params.offset))
+    const qs = search.toString()
+    return api.get(`/admin/users${qs ? `?${qs}` : ''}`)
+  },
+  userDetail: (id: string) => api.get(`/admin/users/${id}`),
+  suspendUser: (id: string) => api.post(`/admin/users/${id}/suspend`),
+  reactivateUser: (id: string) => api.post(`/admin/users/${id}/reactivate`),
+  announcements: () => api.get('/admin/announcements'),
+  createAnnouncement: (data: { title: string; content: string; audience: string }) =>
+    api.post('/admin/announcements', data),
+  updateAnnouncement: (id: string, data: Record<string, string>) =>
+    api.patch(`/admin/announcements/${id}`, data),
+  deleteAnnouncement: (id: string) => api.delete(`/admin/announcements/${id}`),
+  pinnedPosts: () => api.get('/admin/pinned'),
+  pinPost: (post_id: string, pin_order?: number) =>
+    api.post('/admin/pinned', { post_id, pin_order }),
+  unpinPost: (postId: string) => api.delete(`/admin/pinned/${postId}`),
+  verifications: (status?: string) =>
+    api.get(`/admin/verification${status ? `?status=${status}` : ''}`),
+  approveVerification: (id: string, note?: string) =>
+    api.post(`/admin/verification/${id}/approve`, { note }),
+  rejectVerification: (id: string, note?: string) =>
+    api.post(`/admin/verification/${id}/reject`, { note }),
+  referrals: () => api.get('/admin/referrals'),
+  reports: (status = 'open') => api.get(`/admin/reports?status=${status}`),
+  resolveReport: (id: string, data: { resolution_note?: string; remove_content?: boolean }) =>
+    api.post(`/admin/reports/${id}/resolve`, data),
+  sessions: () => api.get('/admin/sessions'),
+  createSession: (data: Record<string, unknown>) => api.post('/admin/sessions', data),
+  updateSession: (id: string, data: Record<string, unknown>) =>
+    api.patch(`/admin/sessions/${id}`, data),
+  cancelSession: (id: string) => api.delete(`/admin/sessions/${id}`),
+  analytics: () => api.get('/admin/analytics'),
+  auditLogs: () => api.get('/admin/audit-logs'),
+  settings: () => api.get('/admin/settings'),
+}
+
 export default api

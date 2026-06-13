@@ -267,6 +267,35 @@ async def _apply_schema_patches(conn) -> None:
         text("CREATE INDEX IF NOT EXISTS ix_discussion_comments_parent ON discussion_comments (parent_comment_id)")
     )
 
+    # Super admin platform columns
+    await conn.execute(
+        text("ALTER TABLE users ADD COLUMN IF NOT EXISTS platform_role VARCHAR(20) NOT NULL DEFAULT 'USER'")
+    )
+    await conn.execute(
+        text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_suspended BOOLEAN NOT NULL DEFAULT FALSE")
+    )
+    await conn.execute(
+        text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT FALSE")
+    )
+    await conn.execute(
+        text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ")
+    )
+    await conn.execute(
+        text("ALTER TABLE users ADD COLUMN IF NOT EXISTS login_streak_current INTEGER NOT NULL DEFAULT 0")
+    )
+    await conn.execute(
+        text("ALTER TABLE users ADD COLUMN IF NOT EXISTS login_streak_longest INTEGER NOT NULL DEFAULT 0")
+    )
+    await conn.execute(
+        text("ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code VARCHAR(32)")
+    )
+    await conn.execute(
+        text("ALTER TABLE posts ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN NOT NULL DEFAULT FALSE")
+    )
+    await conn.execute(
+        text("ALTER TABLE posts ADD COLUMN IF NOT EXISTS pin_order INTEGER")
+    )
+
 
 
 async def init_db() -> None:

@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.routes import (
+    admin,
     auth,
     bookmarks,
     comments,
@@ -26,6 +27,7 @@ from app.routes import (
 api_router = APIRouter()
 
 api_router.include_router(auth.router)
+api_router.include_router(admin.router)
 api_router.include_router(connections.router)
 api_router.include_router(workspaces.router)
 api_router.include_router(users.router)

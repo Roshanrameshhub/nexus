@@ -141,6 +141,7 @@ export default function SignupPage() {
           email: u.email,
           avatar: u.avatar || formData.avatar,
           role: u.role,
+          platform_role: u.platform_role ?? 'USER',
           skills: u.skills || [],
           bio: u.bio,
         },

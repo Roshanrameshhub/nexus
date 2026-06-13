@@ -2,11 +2,12 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum, String, Text, JSON
+from sqlalchemy import Boolean, DateTime, Enum, Integer, String, Text, JSON
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.platform import PlatformRole
 
 
 class UserRole(str, enum.Enum):
@@ -35,14 +36,21 @@ class User(Base):
     github_avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     github_access_token: Mapped[str | None] = mapped_column(String(500), nullable=True)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.developer)
+    platform_role: Mapped[str] = mapped_column(String(20), default=PlatformRole.USER.value, server_default="USER")
     google_id: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True)
     password_reset_token: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     password_reset_expires: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_suspended: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    login_streak_current: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    login_streak_longest: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    referral_code: Mapped[str | None] = mapped_column(String(32), nullable=True, unique=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
-    # New onboarding profile fields
+    # Onboarding profile fields
     country: Mapped[str | None] = mapped_column(String(100), nullable=True)
     college: Mapped[str | None] = mapped_column(String(255), nullable=True)
     company: Mapped[str | None] = mapped_column(String(255), nullable=True)
