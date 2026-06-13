@@ -44,6 +44,23 @@ export function ReferralSection() {
     }
   }
 
+  const shareLink = async () => {
+    if (!info) return
+    try {
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        await navigator.share({
+          title: 'Join Nexus',
+          text: 'Sign up on Nexus with my referral link',
+          url: info.referral_link,
+        })
+        return
+      }
+    } catch {
+      /* fall through to copy */
+    }
+    await copyText('Referral link', info.referral_link)
+  }
+
   if (loading) {
     return (
       <div className="glass-card p-6 flex items-center justify-center min-h-[160px]">
@@ -107,6 +124,10 @@ export function ReferralSection() {
             Copy Link
           </Button>
         </div>
+        <Button type="button" variant="secondary" className="w-full sm:w-auto" onClick={() => void shareLink()}>
+          <Share2 className="w-4 h-4 mr-2" />
+          Share Link
+        </Button>
       </div>
     </motion.section>
   )

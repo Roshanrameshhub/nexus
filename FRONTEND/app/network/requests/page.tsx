@@ -1,17 +1,116 @@
 'use client'
 
 import Link from 'next/link'
+import type { LucideIcon } from 'lucide-react'
 import { AppShell } from '@/components/layout/app-shell'
 import { Button } from '@/components/ui/button'
 import { CardSkeleton } from '@/components/ui/loading-skeleton'
-import { EmptyState } from '@/components/ui/empty-state'
 import { ConnectButton } from '@/components/social/connect-button'
 import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
 import { useConnections, useReceivedRequests, useSentRequests } from '@/lib/hooks/api/use-connections'
-import { Users, Mail, Check, XCircle } from 'lucide-react'
+import { Users, Mail, Check, UserCheck } from 'lucide-react'
 import { useAuthStore } from '@/lib/store'
 import { getInitials, roleLabel } from '@/lib/utils/format'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+
+function SummaryCard({
+  label,
+  title,
+  count,
+  description,
+  icon: Icon,
+}: {
+  label: string
+  title: string
+  count: number
+  description: string
+  icon: LucideIcon
+}) {
+  return (
+    <div className="glass-card p-5 flex flex-col h-full min-h-[148px]">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">{label}</p>
+        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+          <Icon className="w-4 h-4 text-primary" />
+        </div>
+      </div>
+      <h2 className="text-base font-semibold text-foreground mt-2 leading-snug">{title}</h2>
+      <p className="text-2xl font-bold text-foreground mt-2 tabular-nums">{count}</p>
+      <p className="text-sm text-muted-foreground mt-auto pt-2 leading-relaxed">{description}</p>
+    </div>
+  )
+}
+
+function ColumnHeader({
+  label,
+  count,
+  icon: Icon,
+}: {
+  label: string
+  count: number
+  icon: LucideIcon
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 mb-4 pb-4 border-b border-border/40 shrink-0">
+      <div className="min-w-0">
+        <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">{label}</p>
+        <p className="text-2xl font-bold text-foreground mt-1 tabular-nums">{count}</p>
+      </div>
+      <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+        <Icon className="w-4 h-4 text-primary" />
+      </div>
+    </div>
+  )
+}
+
+function CompactEmpty({
+  icon: Icon,
+  title,
+  description,
+  action,
+}: {
+  icon: LucideIcon
+  title: string
+  description?: string
+  action?: React.ReactNode
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center text-center py-6 px-3 rounded-lg border border-dashed border-border/40 bg-secondary/10 flex-1 min-h-[120px]">
+      <Icon className="w-5 h-5 text-muted-foreground mb-2" />
+      <p className="text-sm font-medium text-foreground">{title}</p>
+      {description && <p className="text-xs text-muted-foreground mt-1 max-w-[220px]">{description}</p>}
+      {action && <div className="mt-3">{action}</div>}
+    </div>
+  )
+}
+
+function UserRequestRow({
+  id,
+  name,
+  role,
+  avatar,
+}: {
+  id: string
+  name: string
+  role?: string
+  avatar?: string | null
+}) {
+  return (
+    <div className="rounded-lg border border-border/40 bg-secondary/10 p-3 flex items-center gap-3 min-h-[72px]">
+      <Avatar className="w-11 h-11 shrink-0 border border-border/40">
+        <AvatarImage src={avatar || undefined} />
+        <AvatarFallback className="text-sm">{getInitials(name || '?')}</AvatarFallback>
+      </Avatar>
+      <div className="flex-1 min-w-0">
+        <Link href={`/users/${id}`} className="font-medium text-sm text-foreground hover:text-primary truncate block">
+          {name}
+        </Link>
+        <p className="text-xs text-muted-foreground truncate">{roleLabel(role)}</p>
+      </div>
+      <ConnectButton userId={id} size="sm" />
+    </div>
+  )
+}
 
 export default function NetworkRequestsPage() {
   useProtectedRoute()
@@ -20,131 +119,138 @@ export default function NetworkRequestsPage() {
   const { data: received, isLoading: loadingReceived } = useReceivedRequests()
   const { data: sent, isLoading: loadingSent } = useSentRequests()
 
+  const incomingCount = received?.length ?? 0
+  const outgoingCount = sent?.length ?? 0
+  const acceptedCount = connections?.length ?? 0
+
   return (
     <AppShell title="Connection Requests">
-      <div className="max-w-6xl mx-auto space-y-8">
-        <section className="grid gap-6 lg:grid-cols-3">
-          <div className="glass-card p-6">
-            <p className="text-sm uppercase tracking-[0.2em] text-muted-foreground">Pending</p>
-            <h2 className="text-2xl font-semibold mt-3">Incoming Requests</h2>
-            <p className="mt-3 text-sm text-muted-foreground">Review requests and grow your network.</p>
-          </div>
-          <div className="glass-card p-6">
-            <p className="text-sm uppercase tracking-[0.2em] text-muted-foreground">Sent</p>
-            <h2 className="text-2xl font-semibold mt-3">Outgoing Requests</h2>
-            <p className="mt-3 text-sm text-muted-foreground">Track pending invites and follow ups.</p>
-          </div>
-          <div className="glass-card p-6">
-            <p className="text-sm uppercase tracking-[0.2em] text-muted-foreground">Network</p>
-            <h2 className="text-2xl font-semibold mt-3">Accepted Connections</h2>
-            <p className="mt-3 text-sm text-muted-foreground">Your active relationship network.</p>
-          </div>
+      <div className="max-w-6xl mx-auto space-y-6">
+        <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-stretch">
+          <SummaryCard
+            label="Pending"
+            title="Incoming Requests"
+            count={incomingCount}
+            description="Review requests and grow your network."
+            icon={Mail}
+          />
+          <SummaryCard
+            label="Sent"
+            title="Outgoing Requests"
+            count={outgoingCount}
+            description="Track pending invites and follow ups."
+            icon={Check}
+          />
+          <SummaryCard
+            label="Network"
+            title="Accepted Connections"
+            count={acceptedCount}
+            description="Your active relationship network."
+            icon={UserCheck}
+          />
         </section>
 
-        <section className="grid gap-6 lg:grid-cols-3">
-          <div className="glass-card p-6">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <p className="text-sm uppercase tracking-[0.2em] text-muted-foreground">Pending Requests</p>
-                <h3 className="text-xl font-semibold">{received?.length ?? 0}</h3>
-              </div>
-              <Users className="w-6 h-6 text-primary" />
-            </div>
-            {loadingReceived && <CardSkeleton count={2} />}
-            {!loadingReceived && (!received || received.length === 0) && (
-              <EmptyState
-                icon={Mail}
-                title="No incoming requests"
-                description="When someone sends a request, it will appear here."
-                action={
-                  <Link href="/discover">
-                    <Button className="glow-primary">Discover people</Button>
-                  </Link>
-                }
-              />
-            )}
-            <div className="space-y-3">
-              {received?.map((request: any) => (
-                <div key={request.id} className="glass-card p-4 flex items-center gap-3">
-                  <Avatar className="w-12 h-12">
-                    <AvatarImage src={request.sender?.avatar || undefined} />
-                    <AvatarFallback>{getInitials(request.sender?.name || '?')}</AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <Link href={`/users/${request.sender?.id}`} className="font-medium text-foreground hover:text-primary">
-                      {request.sender?.name}
+        <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-stretch">
+          <div className="glass-card p-5 flex flex-col h-full min-h-[320px]">
+            <ColumnHeader label="Pending Requests" count={incomingCount} icon={Mail} />
+            <div className="flex flex-col flex-1 min-h-0 gap-3">
+              {loadingReceived && <CardSkeleton count={2} />}
+              {!loadingReceived && incomingCount === 0 && (
+                <CompactEmpty
+                  icon={Mail}
+                  title="No incoming requests"
+                  description="When someone sends a request, it will appear here."
+                  action={
+                    <Link href="/discover">
+                      <Button size="sm" className="glow-primary">
+                        Discover people
+                      </Button>
                     </Link>
-                    <p className="text-sm text-muted-foreground">{roleLabel(request.sender?.role)}</p>
-                  </div>
-                  {request.sender?.id && <ConnectButton userId={request.sender.id} size="sm" />}
+                  }
+                />
+              )}
+              {!loadingReceived && incomingCount > 0 && (
+                <div className="space-y-2 flex-1">
+                  {received?.map((request: { id: string; sender?: { id?: string; name?: string; role?: string; avatar?: string | null } }) =>
+                    request.sender?.id ? (
+                      <UserRequestRow
+                        key={request.id}
+                        id={request.sender.id}
+                        name={request.sender.name || 'Unknown'}
+                        role={request.sender.role}
+                        avatar={request.sender.avatar}
+                      />
+                    ) : null
+                  )}
                 </div>
-              ))}
+              )}
             </div>
           </div>
 
-          <div className="glass-card p-6">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <p className="text-sm uppercase tracking-[0.2em] text-muted-foreground">Sent Requests</p>
-                <h3 className="text-xl font-semibold">{sent?.length ?? 0}</h3>
-              </div>
-              <Check className="w-6 h-6 text-accent" />
-            </div>
-            {loadingSent && <CardSkeleton count={2} />}
-            {!loadingSent && (!sent || sent.length === 0) && (
-              <p className="text-sm text-muted-foreground">You have not sent any connection requests.</p>
-            )}
-            <div className="space-y-3">
-              {sent?.map((request: any) => (
-                <div key={request.id} className="glass-card p-4 flex items-center gap-3">
-                  <Avatar className="w-12 h-12">
-                    <AvatarImage src={request.receiver?.avatar || undefined} />
-                    <AvatarFallback>{getInitials(request.receiver?.name || '?')}</AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <Link href={`/users/${request.receiver?.id}`} className="font-medium text-foreground hover:text-primary">
-                      {request.receiver?.name}
-                    </Link>
-                    <p className="text-sm text-muted-foreground">{roleLabel(request.receiver?.role)}</p>
-                  </div>
-                  {request.receiver?.id && <ConnectButton userId={request.receiver.id} size="sm" />}
+          <div className="glass-card p-5 flex flex-col h-full min-h-[320px]">
+            <ColumnHeader label="Sent Requests" count={outgoingCount} icon={Check} />
+            <div className="flex flex-col flex-1 min-h-0 gap-3">
+              {loadingSent && <CardSkeleton count={2} />}
+              {!loadingSent && outgoingCount === 0 && (
+                <CompactEmpty
+                  icon={Check}
+                  title="No sent requests"
+                  description="You have not sent any connection requests yet."
+                />
+              )}
+              {!loadingSent && outgoingCount > 0 && (
+                <div className="space-y-2 flex-1">
+                  {sent?.map((request: { id: string; receiver?: { id?: string; name?: string; role?: string; avatar?: string | null } }) =>
+                    request.receiver?.id ? (
+                      <UserRequestRow
+                        key={request.id}
+                        id={request.receiver.id}
+                        name={request.receiver.name || 'Unknown'}
+                        role={request.receiver.role}
+                        avatar={request.receiver.avatar}
+                      />
+                    ) : null
+                  )}
                 </div>
-              ))}
+              )}
             </div>
           </div>
 
-          <div className="glass-card p-6">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <p className="text-sm uppercase tracking-[0.2em] text-muted-foreground">Accepted</p>
-                <h3 className="text-xl font-semibold">{connections?.length ?? 0}</h3>
-              </div>
-              <XCircle className="w-6 h-6 text-muted-foreground" />
-            </div>
-            {loadingConnections && <CardSkeleton count={2} />}
-            {!loadingConnections && (!connections || connections.length === 0) && (
-              <p className="text-sm text-muted-foreground">You have no active connections yet.</p>
-            )}
-            <div className="space-y-3">
-              {connections?.map((connection: any) => {
-                const other = connection.sender_id === me?.id ? connection.receiver : connection.sender
-                if (!other) return null
-                return (
-                  <div key={connection.id} className="glass-card p-4 flex items-center gap-3">
-                    <Avatar className="w-12 h-12">
-                      <AvatarImage src={other.avatar || undefined} />
-                      <AvatarFallback>{getInitials(other.name)}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <Link href={`/users/${other.id}`} className="font-medium text-foreground hover:text-primary">
-                        {other.name}
-                      </Link>
-                      <p className="text-sm text-muted-foreground">{roleLabel(other.role)}</p>
-                    </div>
-                    <ConnectButton userId={other.id} size="sm" />
-                  </div>
-                )
-              })}
+          <div className="glass-card p-5 flex flex-col h-full min-h-[320px]">
+            <ColumnHeader label="Accepted Connections" count={acceptedCount} icon={Users} />
+            <div className="flex flex-col flex-1 min-h-0 gap-3">
+              {loadingConnections && <CardSkeleton count={2} />}
+              {!loadingConnections && acceptedCount === 0 && (
+                <CompactEmpty
+                  icon={Users}
+                  title="No connections yet"
+                  description="Accepted connections will appear here."
+                  action={
+                    <Link href="/network">
+                      <Button size="sm" variant="outline">
+                        Explore network
+                      </Button>
+                    </Link>
+                  }
+                />
+              )}
+              {!loadingConnections && acceptedCount > 0 && (
+                <div className="space-y-2 flex-1">
+                  {connections?.map((connection: { id: string; sender_id?: string; sender?: { id: string; name: string; role?: string; avatar?: string | null }; receiver?: { id: string; name: string; role?: string; avatar?: string | null } }) => {
+                    const other = connection.sender_id === me?.id ? connection.receiver : connection.sender
+                    if (!other) return null
+                    return (
+                      <UserRequestRow
+                        key={connection.id}
+                        id={other.id}
+                        name={other.name}
+                        role={other.role}
+                        avatar={other.avatar}
+                      />
+                    )
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </section>

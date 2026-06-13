@@ -1,16 +1,16 @@
 'use client'
 
 import Link from 'next/link'
-import { ArrowLeft, Settings } from 'lucide-react'
+import { ArrowLeft, Share2 } from 'lucide-react'
 import { AppShell } from '@/components/layout/app-shell'
-import { VerificationSection } from '@/components/profile/verification-section'
+import { ReferralSection } from '@/components/profile/referral-section'
 import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
 
-export default function ProfileSettingsPage() {
+export default function ProfileReferralsPage() {
   useProtectedRoute()
 
   return (
-    <AppShell title="Profile Settings">
+    <AppShell title="Referrals">
       <div className="max-w-2xl mx-auto space-y-6">
         <div>
           <Link
@@ -21,15 +21,15 @@ export default function ProfileSettingsPage() {
             Back to profile
           </Link>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <Settings className="w-6 h-6 text-primary" />
-            Profile Settings
+            <Share2 className="w-6 h-6 text-primary" />
+            Referral Program
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage your account preferences and verification.
+            Share your referral code and track invites.
           </p>
         </div>
 
-        <VerificationSection />
+        <ReferralSection />
       </div>
     </AppShell>
   )

@@ -19,6 +19,7 @@ import {
   MessageCircle,
   Bookmark,
   Briefcase,
+  Users,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AppShell } from '@/components/layout/app-shell'
@@ -125,12 +126,6 @@ export default function ProfilePage() {
     }
   }
 
-  const handleOpenPublicProfile = () => {
-    const uid = profile?.id || storeUser?.id
-    if (!uid) return
-    window.open(getPublicProfileUrl(String(uid)), '_blank', 'noopener,noreferrer')
-  }
-
   return (
     <AppShell title="Profile" mainClassName="p-0">
       {/* Profile Header */}
@@ -181,14 +176,16 @@ export default function ProfilePage() {
                         <Share2 className="w-4 h-4 mr-2" />
                         Share
                       </Button>
-                      <Button variant="outline" size="sm" onClick={handleOpenPublicProfile}>
-                        <ExternalLink className="w-4 h-4 mr-2" />
-                        View Public
-                      </Button>
                       <Link href="/profile/settings">
                         <Button variant="outline" size="sm">
                           <ShieldCheck className="w-4 h-4 mr-2" />
                           Verify
+                        </Button>
+                      </Link>
+                      <Link href="/profile/referrals">
+                        <Button variant="outline" size="sm">
+                          <Users className="w-4 h-4 mr-2" />
+                          Refer
                         </Button>
                       </Link>
                       <Link href="/profile/complete">

@@ -14,7 +14,7 @@ from app.models.notification import Notification
 from app.schemas.user import UserPublic, UserRecommendation, UserUpdate
 from app.schemas.auth import MessageResponse
 from app.utils.user_mapper import to_user_public, to_user_response
-from app.services.recommendation_service import recommendation_service
+from app.services.recommendation_service import NetworkGraph, recommendation_service
 from app.utils.country import countries_match
 
 router = APIRouter(prefix="/users", tags=["Users"])
@@ -32,7 +32,84 @@ async def get_recommendations(
     country: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(User).where(User.id != current_user.id)
+    accepted_result = await db.execute(
+        select(Connection.sender_id, Connection.receiver_id).where(
+            Connection.status == ConnectionStatus.accepted
+        )
+    )
+    accepted_pairs = list(accepted_result.all())
+
+    pending_result = await db.execute(
+        select(Connection.sender_id, Connection.receiver_id).where(
+            Connection.status == ConnectionStatus.pending,
+            or_(
+                Connection.sender_id == current_user.id,
+                Connection.receiver_id == current_user.id,
+            ),
+        )
+    )
+    pending_pairs = list(pending_result.all())
+
+    referral_peer_ids: set = set()
+    if current_user.referred_by_id:
+        sibling_result = await db.execute(
+            select(User.id).where(
+                User.referred_by_id == current_user.referred_by_id,
+                User.id != current_user.id,
+                User.is_suspended.is_(False),
+            )
+        )
+        referral_peer_ids.update(sibling_result.scalars().all())
+    referred_result = await db.execute(
+        select(User.id).where(
+            User.referred_by_id == current_user.id,
+            User.is_suspended.is_(False),
+        )
+    )
+    referral_peer_ids.update(referred_result.scalars().all())
+
+    graph = NetworkGraph.build(
+        current_user.id,
+        accepted_pairs,
+        pending_pairs,
+        referral_peer_ids,
+    )
+    excluded = graph.excluded_ids()
+
+    candidate_ids: set = set(graph.second_degree_ids) | set(graph.referral_peer_ids)
+
+    profile_filters = []
+    if current_user.college:
+        profile_filters.append(func.lower(User.college) == current_user.college.strip().lower())
+    if current_user.company:
+        profile_filters.append(func.lower(User.company) == current_user.company.strip().lower())
+    if current_user.skills:
+        profile_filters.append(User.skills.overlap(current_user.skills))
+
+    if profile_filters:
+        profile_result = await db.execute(
+            select(User.id).where(
+                User.id.notin_(list(excluded)),
+                User.is_suspended.is_(False),
+                or_(*profile_filters),
+            ).limit(100)
+        )
+        candidate_ids.update(profile_result.scalars().all())
+
+    if not candidate_ids:
+        fallback_result = await db.execute(
+            select(User.id).where(
+                User.id != current_user.id,
+                User.is_suspended.is_(False),
+            ).order_by(User.created_at.desc()).limit(100)
+        )
+        candidate_ids.update(fallback_result.scalars().all())
+
+    user_query = select(User).where(
+        User.id.in_(list(candidate_ids)),
+        User.id.notin_(list(excluded)),
+        User.is_suspended.is_(False),
+    )
     if roles:
         enum_roles = []
         for r in roles:
@@ -40,46 +117,51 @@ async def get_recommendations(
                 enum_roles.append(UserRole[r])
             else:
                 enum_roles.append(r)
-        query = query.where(User.role.in_(enum_roles))
+        user_query = user_query.where(User.role.in_(enum_roles))
 
-    fetch_limit = 100 if country else 20
-    result = await db.execute(
-        query.order_by(User.created_at.desc()).limit(fetch_limit)
-    )
-    users = list(result.scalars().all())
+    user_result = await db.execute(user_query.limit(150))
+    users = list(user_result.scalars().all())
     if country:
-        users = [u for u in users if countries_match(u.country, country)][:20]
+        users = [u for u in users if countries_match(u.country, country)]
+
     followed_result = await db.execute(
         select(Follow.followee_id).where(Follow.follower_id == current_user.id)
     )
     followed_ids = set(followed_result.scalars().all())
 
-    recommendations: List[UserRecommendation] = []
+    scored: List[tuple[int, UserRecommendation]] = []
     for u in users:
-        match_score, match_factors = recommendation_service.calculate_match_score_and_factors(current_user, u)
-        recommendations.append(
-            UserRecommendation(
-                id=u.id,
-                name=u.name,
-                role=u.role.value if hasattr(u.role, "value") else u.role,
-                email=u.email,
-                avatar=u.profile_image,
-                bio=u.bio,
-                skills=u.skills or [],
-                match=f"{match_score}%",
-                following=u.id in followed_ids,
-                country=u.country,
-                college=u.college,
-                company=u.company,
-                role_details=u.role_details,
-                match_factors=match_factors,
-                is_verified=bool(getattr(u, "is_verified", False)),
+        raw_score, match_score, match_factors = recommendation_service.score_relationship_recommendation(
+            current_user, u, graph
+        )
+        if raw_score <= 0:
+            continue
+        scored.append(
+            (
+                raw_score,
+                UserRecommendation(
+                    id=u.id,
+                    name=u.name,
+                    role=u.role.value if hasattr(u.role, "value") else u.role,
+                    email=u.email,
+                    avatar=u.profile_image,
+                    bio=u.bio,
+                    skills=u.skills or [],
+                    match=f"{match_score}%",
+                    following=u.id in followed_ids,
+                    country=u.country,
+                    college=u.college,
+                    company=u.company,
+                    role_details=u.role_details,
+                    match_factors=match_factors,
+                    is_verified=bool(getattr(u, "is_verified", False)),
+                ),
             )
         )
-        
-    # Sort recommendations by match score descending
-    recommendations.sort(key=lambda r: int(r.match.replace("%", "")), reverse=True)
-    return {"recommendations": recommendations[:20]}
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    recommendations = [item[1] for item in scored[:20]]
+    return {"recommendations": recommendations}
 
 
 @router.get("/search", response_model=dict)

@@ -620,6 +620,12 @@ export default function NetworkPage() {
                               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-secondary/80 text-secondary-foreground mt-0.5 border border-border/40">
                                 {formatRoleLabel(rec)}
                               </span>
+                              {rec.match_factors?.[0] && (
+                                <p className="text-[11px] text-primary mt-1.5 flex items-center gap-1">
+                                  <UserCheck className="w-3 h-3 shrink-0" />
+                                  <span className="truncate">{rec.match_factors[0]}</span>
+                                </p>
+                              )}
                             </div>
                           </div>
 

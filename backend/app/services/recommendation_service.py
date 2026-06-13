@@ -1,5 +1,87 @@
-from typing import List, Tuple
+from collections import defaultdict
+from dataclasses import dataclass
+from typing import Iterable, List, Set, Tuple
+from uuid import UUID
+
 from app.models.user import User, UserRole
+
+
+def _norm(value: str | None) -> str:
+    return (value or "").strip().lower()
+
+
+def _skill_overlap(a: list[str] | None, b: list[str] | None) -> set[str]:
+    s1 = {_norm(x) for x in (a or []) if _norm(x)}
+    s2 = {_norm(x) for x in (b or []) if _norm(x)}
+    return s1 & s2
+
+
+def _interest_overlap(details_a: dict | None, details_b: dict | None) -> set[str]:
+    def extract(details: dict | None) -> set[str]:
+        if not details:
+            return set()
+        raw = details.get("interests") or details.get("focus_areas") or []
+        if isinstance(raw, str):
+            return {_norm(x) for x in raw.split(",") if _norm(x)}
+        return {_norm(x) for x in raw if _norm(x)}
+
+    return extract(details_a) & extract(details_b)
+
+
+@dataclass(frozen=True)
+class NetworkGraph:
+    """In-memory view of a user's professional graph for recommendation scoring."""
+
+    current_user_id: UUID
+    adjacency: dict[UUID, Set[UUID]]
+    connected_ids: frozenset[UUID]
+    pending_ids: frozenset[UUID]
+    second_degree_ids: frozenset[UUID]
+    referral_peer_ids: frozenset[UUID]
+
+    @classmethod
+    def build(
+        cls,
+        current_user_id: UUID,
+        accepted_pairs: Iterable[Tuple[UUID, UUID]],
+        pending_pairs: Iterable[Tuple[UUID, UUID]],
+        referral_peer_ids: Iterable[UUID],
+    ) -> "NetworkGraph":
+        adjacency: dict[UUID, Set[UUID]] = defaultdict(set)
+        for sender_id, receiver_id in accepted_pairs:
+            adjacency[sender_id].add(receiver_id)
+            adjacency[receiver_id].add(sender_id)
+
+        connected_ids = frozenset(adjacency.get(current_user_id, set()))
+        pending: Set[UUID] = set()
+        for sender_id, receiver_id in pending_pairs:
+            if sender_id == current_user_id:
+                pending.add(receiver_id)
+            elif receiver_id == current_user_id:
+                pending.add(sender_id)
+
+        second_degree: Set[UUID] = set()
+        for friend_id in connected_ids:
+            for peer_id in adjacency.get(friend_id, set()):
+                if peer_id != current_user_id and peer_id not in connected_ids:
+                    second_degree.add(peer_id)
+
+        return cls(
+            current_user_id=current_user_id,
+            adjacency={k: set(v) for k, v in adjacency.items()},
+            connected_ids=connected_ids,
+            pending_ids=frozenset(pending),
+            second_degree_ids=frozenset(second_degree),
+            referral_peer_ids=frozenset(referral_peer_ids),
+        )
+
+    def excluded_ids(self) -> Set[UUID]:
+        return {self.current_user_id, *self.connected_ids, *self.pending_ids}
+
+    def mutual_count(self, other_user_id: UUID) -> int:
+        mine = self.adjacency.get(self.current_user_id, set())
+        theirs = self.adjacency.get(other_user_id, set())
+        return len(mine & theirs)
 
 
 class RecommendationService:
@@ -238,6 +320,84 @@ class RecommendationService:
             
         final_score = min(99, max(50, score))
         return final_score, unique_factors
+
+    def score_relationship_recommendation(
+        self,
+        current_user: User,
+        target_user: User,
+        graph: NetworkGraph,
+    ) -> Tuple[int, int, List[str]]:
+        """Score a candidate using network relationships and profile similarity.
+
+        Returns (raw_score, display_match_pct, match_factors).
+        """
+        score = 0
+        factors: List[str] = []
+
+        mutual = graph.mutual_count(target_user.id)
+        if mutual > 0:
+            score += mutual * 50
+            label = "Connection" if mutual == 1 else "Connections"
+            factors.append(f"{mutual} Mutual {label}")
+        elif target_user.id in graph.second_degree_ids:
+            score += 25
+            factors.append("Second-degree connection")
+
+        same_referrer = (
+            current_user.referred_by_id is not None
+            and target_user.referred_by_id is not None
+            and current_user.referred_by_id == target_user.referred_by_id
+        )
+        referred_by_current = target_user.referred_by_id == current_user.id
+        referred_by_target = current_user.referred_by_id == target_user.id
+
+        if same_referrer:
+            score += 30
+            factors.append("Connected through a common referrer")
+        elif referred_by_current or referred_by_target or target_user.id in graph.referral_peer_ids:
+            score += 30
+            factors.append("Part of your referral network")
+
+        if current_user.college and target_user.college:
+            if _norm(current_user.college) == _norm(target_user.college):
+                score += 15
+                factors.append("Same College")
+
+        if current_user.company and target_user.company:
+            if _norm(current_user.company) == _norm(target_user.company):
+                score += 15
+                factors.append("Same Company")
+
+        overlap = _skill_overlap(current_user.skills, target_user.skills)
+        if overlap:
+            score += len(overlap) * 10
+            factors.append(f"{len(overlap)} Shared Skill{'s' if len(overlap) != 1 else ''}")
+
+        if current_user.country and target_user.country:
+            if _norm(current_user.country) == _norm(target_user.country):
+                score += 5
+                factors.append("Same Location")
+
+        if current_user.role == target_user.role:
+            score += 5
+            role_label = target_user.role.value if hasattr(target_user.role, "value") else str(target_user.role)
+            factors.append(f"Same Role ({role_label.replace('_', ' ').title()})")
+
+        c1_details = current_user.role_details or {}
+        c2_details = target_user.role_details or {}
+        c1_industry = c1_details.get("industry")
+        c2_industry = c2_details.get("industry")
+        if c1_industry and c2_industry and _norm(str(c1_industry)) == _norm(str(c2_industry)):
+            score += 10
+            factors.append(f"Works in {c2_industry}")
+
+        interest_overlap = _interest_overlap(c1_details, c2_details)
+        if interest_overlap:
+            score += min(len(interest_overlap) * 5, 15)
+            factors.append("Shared Interests")
+
+        match_pct = min(99, max(50, score)) if score > 0 else 0
+        return score, match_pct, factors
 
 
 recommendation_service = RecommendationService()
