@@ -20,6 +20,7 @@ from app.routes import (
     topics,
     upload,
     users,
+    verification,
     workspaces,
     meetings,
 )
@@ -45,5 +46,6 @@ api_router.include_router(news.router)
 api_router.include_router(search.router)
 api_router.include_router(topics.router)
 api_router.include_router(upload.router)
+api_router.include_router(verification.router)
 api_router.include_router(github.router)
 api_router.include_router(meetings.router)

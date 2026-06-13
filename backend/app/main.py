@@ -20,6 +20,12 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # TEMP DATABASE DIAGNOSTIC
+    from app.diagnostics.database_temp import startup_database_log_lines
+
+    for line in startup_database_log_lines():
+        logger.warning(line)
+    # END TEMP DATABASE DIAGNOSTIC
     await init_db()
     yield
 
@@ -78,6 +84,12 @@ async def unhandled_exception_handler(_: Request, exc: Exception):
 
 app.include_router(api_router, prefix=settings.API_PREFIX)
 app.include_router(ws_router, prefix=settings.API_PREFIX)
+
+# TEMP DATABASE DIAGNOSTIC
+from app.routes.debug_database_temp import router as debug_database_temp_router
+
+app.include_router(debug_database_temp_router)
+# END TEMP DATABASE DIAGNOSTIC
 
 
 @app.get("/")
