@@ -11,7 +11,7 @@ import {
   Linkedin,
   ExternalLink,
   Edit,
-  Settings,
+  ShieldCheck,
   Share2,
   MoreHorizontal,
   Code,
@@ -184,8 +184,8 @@ export default function ProfilePage() {
                       </Button>
                       <Link href="/profile/settings">
                         <Button variant="outline" size="sm">
-                          <Settings className="w-4 h-4 mr-2" />
-                          Settings
+                          <ShieldCheck className="w-4 h-4 mr-2" />
+                          Verify
                         </Button>
                       </Link>
                       <Link href="/profile/complete">

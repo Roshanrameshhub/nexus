@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AdminShell } from '@/components/layout/admin-shell'
 import { Button } from '@/components/ui/button'
+import { getMediaUrl } from '@/lib/config/api'
 import { adminAPI } from '@/services/api'
 import { toast } from 'sonner'
 
@@ -54,7 +55,12 @@ export default function AdminVerificationPage() {
           <div key={item.id} className="rounded-lg border border-slate-800 bg-slate-900/60 p-4">
             <p className="font-medium text-white">{item.user_name}</p>
             <p className="text-sm text-slate-400">{item.document_type}</p>
-            <a href={item.document_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400">
+            <a
+              href={getMediaUrl(item.document_url)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-blue-400"
+            >
               View document
             </a>
             <div className="flex gap-2 mt-3">
