@@ -1,0 +1,541 @@
+'use client'
+
+import { useCallback, useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
+import Link from 'next/link'
+import { 
+  Plus,
+  Flag,
+  Copy,
+  Repeat2,
+  Image as ImageIcon,
+  Filter, 
+  MoreHorizontal
+} from 'lucide-react'
+import { AppShell } from '@/components/layout/app-shell'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Textarea } from '@/components/ui/textarea'
+import { ImageUploader } from '@/components/social/image-uploader'
+import { ReactionButtons } from '@/components/social/reaction-buttons'
+import { CommentThread } from '@/components/social/comment-thread'
+import { bookmarksAPI, postsAPI, usersAPI } from '@/services/api'
+import { newsAPI } from '@/services/news-api'
+import { useAuthStore } from '@/lib/store'
+import { useProtectedRoute } from '@/lib/hooks/use-protected-route'
+import { mapPostToFeedView, type FeedPostView } from '@/lib/mappers/posts'
+import { getInitials, roleLabel } from '@/lib/utils/format'
+import { getMediaUrl } from '@/lib/config/api'
+import { MediaViewer } from '@/components/ui/media-viewer'
+import type { ApiUserRecommendation } from '@/lib/types/api'
+import { toast } from 'sonner'
+
+const feedFilters = ['All', 'Following', 'Startups', 'AI', 'Hiring', 'Funding'] as const
+const postTypes = [
+  'text',
+  'startup_update',
+  'hiring',
+  'funding',
+  'product_launch',
+  'poll',
+  'event',
+] as const
+
+export default function FeedPage() {
+  useProtectedRoute()
+  const user = useAuthStore((s) => s.user)
+  const [activeFilter, setActiveFilter] = useState<(typeof feedFilters)[number]>('All')
+  const [postType, setPostType] = useState<(typeof postTypes)[number]>('text')
+  const [postContent, setPostContent] = useState('')
+  const [uploadedMedia, setUploadedMedia] = useState<string[]>([])
+  const [feedPosts, setFeedPosts] = useState<FeedPostView[]>([])
+  const [trendingPeople, setTrendingPeople] = useState<ApiUserRecommendation[]>([])
+  const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({})
+  const [savedPosts, setSavedPosts] = useState<Record<string, boolean>>({})
+  const [repostCaption, setRepostCaption] = useState<Record<string, string>>({})
+  const [submitting, setSubmitting] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [viewerOpen, setViewerOpen] = useState(false)
+  const [viewerImage, setViewerImage] = useState('')
+  const filterValue = activeFilter === 'All' ? undefined : activeFilter.toLowerCase()
+  
+  const refetchFeed = useCallback(async () => {
+    setLoading(true)
+    try {
+      const postsRes = await postsAPI.getFeed(1, 30, filterValue)
+      setFeedPosts((postsRes.data.posts || []).map(mapPostToFeedView))
+    } catch {
+      setFeedPosts([])
+    } finally {
+      setLoading(false)
+    }
+  }, [filterValue])
+
+  const loadSidebar = useCallback(async () => {
+    try {
+      const recRes = await usersAPI.getRecommendations()
+      setTrendingPeople(recRes.data.recommendations || [])
+    } catch {
+      setTrendingPeople([])
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadSidebar()
+  }, [loadSidebar])
+  useEffect(() => {
+    void refetchFeed()
+  }, [refetchFeed])
+
+  const handleCreatePost = async () => {
+    if (!postContent.trim()) return
+    setSubmitting(true)
+    try {
+      const prefix =
+        postType === 'text'
+          ? ''
+          : `[${postType.replace('_', ' ').toUpperCase()}] `
+      await postsAPI.createPost({
+        content: `${prefix}${postContent.trim()}`,
+        media: uploadedMedia,
+      })
+      setPostContent('')
+      setUploadedMedia([])
+      await refetchFeed()
+      toast.success('Post published')
+    } catch {
+      toast.error('Could not publish post')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleLike = async (postId: string) => {
+    try {
+      await postsAPI.likePost(postId)
+      await refetchFeed()
+    } catch {
+      toast.error('Failed to react to post')
+    }
+  }
+
+  const handleFollow = async (userId: string, isFollowing: boolean) => {
+    try {
+      if (isFollowing) {
+        await usersAPI.unfollow(userId)
+      } else {
+        await usersAPI.follow(userId)
+      }
+      setTrendingPeople((prev) =>
+        prev.map((p) =>
+          p.id === userId ? { ...p, following: !isFollowing } : p
+        )
+      )
+    } catch {
+      toast.error('Unable to update follow status')
+    }
+  }
+
+  const toggleComments = (postId: string) => {
+    setExpandedComments((prev) => ({ ...prev, [postId]: !prev[postId] }))
+  }
+
+  const handleSave = async (postId: string) => {
+    try {
+      if (savedPosts[postId]) {
+        await bookmarksAPI.unsavePost(postId)
+        setSavedPosts((prev) => ({ ...prev, [postId]: false }))
+        toast.success('Removed from saved posts')
+      } else {
+        await bookmarksAPI.savePost(postId)
+        setSavedPosts((prev) => ({ ...prev, [postId]: true }))
+        toast.success('Saved post')
+      }
+    } catch {
+      toast.error('Unable to update saved status')
+    }
+  }
+
+  const handleRepost = async (postId: string) => {
+    try {
+      await bookmarksAPI.createRepost(postId, repostCaption[postId]?.trim() || undefined)
+      setRepostCaption((prev) => ({ ...prev, [postId]: '' }))
+      toast.success('Reposted successfully')
+      await refetchFeed()
+    } catch {
+      toast.error('Failed to repost')
+    }
+  }
+
+  const copyPostLink = async (postId: string) => {
+    await navigator.clipboard.writeText(`${window.location.origin}/posts/${postId}`)
+    toast.success('Post link copied')
+  }
+
+  const reportPost = (postId: string) => {
+    const link = `${window.location.origin}/posts/${postId}`
+    window.location.href = `mailto:support@nexus.dev?subject=Report%20Post&body=Please%20review%20this%20post:%20${encodeURIComponent(link)}`
+  }
+
+  return (
+    <div className="min-h-screen bg-background flex">
+      {/* Sidebar */}
+      <motion.aside 
+        className={`fixed left-0 top-0 h-full bg-sidebar border-r border-sidebar-border z-40 transition-all duration-300 ${
+          sidebarOpen ? 'w-64' : 'w-20'
+        }`}
+        initial={{ x: -100, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        transition={{ duration: 0.3 }}
+      >
+        <div className="flex flex-col h-full p-4">
+          <Link href="/dashboard" className="flex items-center gap-2 mb-8 px-2">
+            <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center glow-primary shrink-0">
+              <Sparkles className="w-6 h-6 text-primary-foreground" />
+            </div>
+            {sidebarOpen && <span className="text-xl font-bold text-foreground">Nexus</span>}
+          </Link>
+          
+          <nav className="space-y-1 flex-1">
+            {sidebarItems.map((item) => (
+              <Link
+                key={item.label}
+                href={item.href}
+                className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all ${
+                  item.active 
+                    ? 'bg-sidebar-accent text-sidebar-accent-foreground' 
+                    : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
+                }`}
+              >
+                <item.icon className="w-5 h-5 shrink-0" />
+                {sidebarOpen && <span className="font-medium">{item.label}</span>}
+              </Link>
+            ))}
+          </nav>
+          
+          <div className="border-t border-sidebar-border pt-4 mt-4">
+            <Link href="/profile" className="flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-sidebar-accent/50 transition-all">
+              <Avatar className="w-10 h-10 shrink-0">
+                <AvatarImage src="" />
+                <AvatarFallback className="bg-primary/20 text-primary">{user ? getInitials(user.name) : 'U'}</AvatarFallback>
+              </Avatar>
+              {sidebarOpen && (
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-foreground truncate">{user?.name || 'User'}</div>
+                  <div className="text-xs text-muted-foreground truncate">{user ? roleLabel(user.role) : ''}</div>
+                </div>
+              )}
+            </Link>
+            
+            <div className="flex items-center gap-2 mt-2">
+              <Link href="/settings" className="flex-1">
+                <Button variant="ghost" size="sm" className="w-full justify-start gap-2">
+                  <Settings className="w-4 h-4" />
+                  {sidebarOpen && 'Settings'}
+                </Button>
+              </Link>
+              {sidebarOpen && <LogoutButton />}
+            </div>
+          </div>
+        </div>
+      </motion.aside>
+      
+      {/* Main Content */}
+      <main className={`flex-1 transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-20'}`}>
+        {/* Top Bar */}
+        <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-xl border-b border-border">
+          <div className="flex items-center justify-between px-6 py-4">
+            <div className="flex items-center gap-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="lg:hidden"
+              >
+                <MoreHorizontal className="w-5 h-5" />
+              </Button>
+              <div className="relative w-80">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input 
+                  placeholder="Search posts, people, topics..." 
+                  className="pl-10 bg-secondary/50 border-border/50"
+                />
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              <Link href="/notifications" className="relative">
+                <Button variant="ghost" size="sm" className="relative">
+                  <Bell className="w-5 h-5" />
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-primary-foreground text-xs rounded-full flex items-center justify-center">
+                    3
+                  </span>
+                </Button>
+              </Link>
+              <Link href="/messages" className="relative">
+                <Button variant="ghost" size="sm" className="relative">
+                  <MessageSquare className="w-5 h-5" />
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </header>
+        
+        {/* Feed Content */}
+        <div className="max-w-6xl mx-auto p-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Main Feed */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* Create Post */}
+              <motion.div 
+                className="glass-card p-5"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5 }}
+              >
+                <div className="flex gap-4">
+                  <Avatar className="w-10 h-10 shrink-0">
+                    <AvatarImage src="" />
+                    <AvatarFallback className="bg-primary/20 text-primary">{user ? getInitials(user.name) : 'U'}</AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1">
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      {postTypes.map((type) => (
+                        <Button
+                          key={type}
+                          size="sm"
+                          variant={postType === type ? 'default' : 'outline'}
+                          onClick={() => setPostType(type)}
+                        >
+                          {type.replace('_', ' ')}
+                        </Button>
+                      ))}
+                    </div>
+                    <Textarea
+                      placeholder="Share your thoughts, ideas, or updates..."
+                      value={postContent}
+                      onChange={(e) => setPostContent(e.target.value)}
+                      className="min-h-[100px] bg-secondary/30 border-border/50 resize-none"
+                    />
+                    <div className="mt-3">
+                      <ImageUploader onUpload={setUploadedMedia} maxFiles={5} maxSizeMB={5} />
+                    </div>
+                    <div className="flex items-center justify-between mt-3">
+                      <div className="flex items-center gap-2">
+                        <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-primary">
+                          <ImageIcon className="w-5 h-5" />
+                        </Button>
+                        <span className="text-xs text-muted-foreground">
+                          Mention users/startups with @ and hashtags like #AI #Funding
+                        </span>
+                      </div>
+                      <Button className="glow-primary" disabled={!postContent.trim() || submitting} onClick={handleCreatePost}>
+                        <Plus className="w-4 h-4 mr-2" />
+                        Post
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+              
+              {/* Filters */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-2">
+                <Button variant="ghost" size="sm" className="shrink-0">
+                  <Filter className="w-4 h-4 mr-2" />
+                  Filter
+                </Button>
+                {feedFilters.map((filter) => (
+                  <Button
+                    key={filter}
+                    variant={activeFilter === filter ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setActiveFilter(filter)}
+                    className={`shrink-0 ${activeFilter === filter ? 'glow-primary' : ''}`}
+                  >
+                    {filter}
+                  </Button>
+                ))}
+              </div>
+              
+              {/* Posts */}
+              <div className="space-y-4">
+                {loading && feedPosts.length === 0 && (
+                  <p className="text-sm text-muted-foreground">Loading posts...</p>
+                )}
+                {!loading && feedPosts.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No posts yet.</p>
+                )}
+                {feedPosts.map((post, index) => (
+                  <motion.div
+                    key={post.id}
+                    className="glass-card p-5"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.5, delay: index * 0.1 }}
+                  >
+                    <div className="flex items-start gap-4">
+                      <Avatar className="w-12 h-12 shrink-0">
+                        <AvatarImage src={post.author.avatar} />
+                        <AvatarFallback className="bg-primary/20 text-primary">
+                          {post.author.name.split(' ').map(n => n[0]).join('')}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-semibold text-foreground">{post.author.name}</span>
+                          {post.author.verified && (
+                            <svg className="w-4 h-4 text-primary" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          )}
+                          <span className="text-sm text-muted-foreground">·</span>
+                          <span className="text-sm text-muted-foreground">{post.time}</span>
+                          <Button variant="ghost" size="sm" className="ml-auto p-1 h-auto">
+                            <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
+                          </Button>
+                        </div>
+                        <p className="text-sm text-muted-foreground mb-1">{post.author.role}</p>
+                        <Link href={`/posts/${post.id}`} className="block">
+                          <p className="text-foreground whitespace-pre-line mb-3 hover:text-primary/90">{post.content}</p>
+                        </Link>
+                        <div className="flex flex-wrap gap-2 mb-4">
+                          {post.tags.map(tag => (
+                            <span key={tag} className="px-2 py-1 rounded-full bg-primary/10 text-primary text-xs hover:bg-primary/20 cursor-pointer transition-colors">
+                              #{tag}
+                            </span>
+                          ))}
+                        </div>
+                        {post.media.length > 0 && (
+                          <div className="mb-4 grid grid-cols-2 gap-2">
+                            {post.media.map((url) => (
+                              <img
+                                key={url}
+                                src={getMediaUrl(url)}
+                                alt="Post media"
+                                className="rounded-lg w-full h-44 object-cover"
+                                onError={(e) => {
+                                  const img = e.target as HTMLImageElement
+                                  img.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-size="20"%3EMedia unavailable%3C/text%3E%3C/svg%3E'
+                                }}
+                              />
+                            ))}
+                          </div>
+                        )}
+                        <ReactionButtons
+                          postId={post.id}
+                          liked={post.liked}
+                          likesCount={post.likes}
+                          commentsCount={post.comments}
+                          sharesCount={post.shares}
+                          saved={Boolean(savedPosts[post.id])}
+                          onCommentClick={() => toggleComments(post.id)}
+                          onReactionSuccess={() => void handleLike(post.id)}
+                          onSaveClick={() => void handleSave(post.id)}
+                          onShareClick={() => void copyPostLink(post.id)}
+                          onMoreClick={() => toast.info('Use copy/report actions below')}
+                        />
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Input
+                            value={repostCaption[post.id] || ''}
+                            onChange={(e) =>
+                              setRepostCaption((prev) => ({ ...prev, [post.id]: e.target.value }))
+                            }
+                            placeholder="Repost with your thoughts..."
+                            className="max-w-md"
+                          />
+                          <Button size="sm" variant="outline" onClick={() => void handleRepost(post.id)}>
+                            <Repeat2 className="w-4 h-4 mr-1" />
+                            Repost
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => void copyPostLink(post.id)}>
+                            <Copy className="w-4 h-4 mr-1" />
+                            Copy link
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => reportPost(post.id)}>
+                            <Flag className="w-4 h-4 mr-1" />
+                            Report
+                          </Button>
+                        </div>
+                        {expandedComments[post.id] && (
+                          <div className="mt-4">
+                            <CommentThread postId={post.id} />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+            
+            {/* Right Sidebar */}
+            <div className="space-y-6">
+              {/* Trending Topics */}
+              <motion.div 
+                className="glass-card p-5"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.5, delay: 0.2 }}
+              >
+                <div className="flex items-center gap-2 mb-4">
+                  <TrendingUp className="w-5 h-5 text-accent" />
+                  <h3 className="font-semibold text-foreground">Trending Topics</h3>
+                </div>
+                <div className="space-y-4">
+                  {trendingTopics.map(({ topic, name }) => (
+                    <Link key={topic} href={`/topics/${encodeURIComponent(name)}`} className="flex items-center justify-between group cursor-pointer hover:bg-secondary/30 p-2 rounded-lg transition-colors">
+                      <div>
+                        <span className="font-medium text-foreground group-hover:text-primary transition-colors">{topic}</span>
+                        <p className="text-xs text-muted-foreground">Trending now</p>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </motion.div>
+              
+              {/* Who to Follow */}
+              <motion.div 
+                className="glass-card p-5"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.5, delay: 0.3 }}
+              >
+                <div className="flex items-center gap-2 mb-4">
+                  <Users className="w-5 h-5 text-primary" />
+                  <h3 className="font-semibold text-foreground">Who to Follow</h3>
+                </div>
+                <div className="space-y-4">
+                  {trendingPeople.map((person) => (
+                    <div key={person.id} className="flex items-center gap-3">
+                      <Avatar className="w-10 h-10 shrink-0">
+                        <AvatarImage src={person.avatar || ''} />
+                        <AvatarFallback className="bg-primary/20 text-primary text-sm">
+                          {getInitials(person.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <Link href={`/users/${person.id}`} className="font-medium text-foreground text-sm truncate hover:text-primary transition-colors">
+                          {person.name}
+                        </Link>
+                        <div className="text-xs text-muted-foreground truncate">{person.match} match</div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant={person.following ? 'default' : 'outline'}
+                        className="shrink-0"
+                        onClick={() => handleFollow(person.id, person.following ?? false)}
+                      >
+                        {person.following ? 'Following' : 'Follow'}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  )
+}
