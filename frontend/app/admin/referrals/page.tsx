@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useAuthStore } from '@/lib/store'
+import { getApiBaseUrl } from '@/lib/config/api'
 
 interface Referral {
   id: string
@@ -17,7 +18,7 @@ export default function AdminReferralsPage() {
   const [analytics, setAnalytics] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const token = useAuthStore((s) => s.token)
-  const baseUrl = 'http://localhost:8000/api/v1'
+  const baseUrl = getApiBaseUrl()
 
   useEffect(() => {
     if (token) {

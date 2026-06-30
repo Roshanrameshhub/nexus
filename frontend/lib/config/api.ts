@@ -1,4 +1,4 @@
-const DEV_API_BASE = 'https://nexus-4ygl.onrender.com/api'
+const DEV_API_BASE = 'http://localhost:8000/api'
 
 export function getApiBaseUrl(): string {
   const configured = process.env.NEXT_PUBLIC_API_URL?.trim()

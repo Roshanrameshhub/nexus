@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useAuthStore } from '@/lib/store'
+import { getApiBaseUrl } from '@/lib/config/api'
 
 export default function DictionaryPage() {
   const [word, setWord] = useState('')
@@ -14,7 +15,7 @@ export default function DictionaryPage() {
     
     setLoading(true)
     try {
-      const res = await fetch('http://localhost:8000/api/v1/ai/dictionary/define', {
+      const res = await fetch(`${getApiBaseUrl()}/ai/dictionary/define`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

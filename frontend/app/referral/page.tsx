@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useAuthStore } from '@/lib/store'
+import { getApiBaseUrl } from '@/lib/config/api'
 import { Users, TrendingUp, Award, Copy, Check, Share2, Gift, UserPlus } from 'lucide-react'
 
 interface ReferralStats {
@@ -35,7 +36,10 @@ export default function ReferralPage() {
   const [copied, setCopied] = useState(false)
   const token = useAuthStore((s) => s.token)
   const user = useAuthStore((s) => s.user)
-  const baseUrl = 'http://localhost:8000/api/v1'
+  const baseUrl = getApiBaseUrl()
+  const frontendUrl =
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    (typeof window !== 'undefined' ? window.location.origin : 'https://www.rconnectx.com')
 
   useEffect(() => {
     if (token) {
@@ -77,7 +81,7 @@ export default function ReferralPage() {
 
   const shareReferral = () => {
     if (stats?.referral_code) {
-      const text = `Join RConnectX using my referral code: ${stats.referral_code}\nSign up at: http://localhost:3000/signup?ref=${stats.referral_code}`
+      const text = `Join RConnectX using my referral code: ${stats.referral_code}\nSign up at: ${frontendUrl}/signup?ref=${stats.referral_code}`
       if (navigator.share) {
         navigator.share({ title: 'Join RConnectX', text })
       } else {

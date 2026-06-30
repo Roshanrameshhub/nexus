@@ -2,13 +2,14 @@
 
 import { useState } from 'react'
 import { useAuthStore } from '@/lib/store'
+import { getApiBaseUrl } from '@/lib/config/api'
 
 export default function AIHelperPage() {
   const [question, setQuestion] = useState('')
   const [answer, setAnswer] = useState('')
   const [loading, setLoading] = useState(false)
   const token = useAuthStore((s) => s.token)
-  const baseUrl = 'http://localhost:8000/api/v1'
+  const baseUrl = getApiBaseUrl()
 
   const askAI = async () => {
     if (!question.trim()) return

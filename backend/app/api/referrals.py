@@ -7,10 +7,13 @@ import uuid
 import secrets
 import string
 
+from app.config.settings import get_settings
 from app.database import get_db
 from app.models.user import User
 from app.models.referral import Referral, ReferralStatus
 from app.dependencies.auth import get_current_user
+
+settings = get_settings()
 
 router = APIRouter(prefix="/referrals", tags=["referrals"])
 
@@ -48,7 +51,7 @@ async def get_my_referral_code(
     
     return {
         "referral_code": current_user.referral_code,
-        "referral_link": f"http://localhost:3000/signup?ref={current_user.referral_code}",
+        "referral_link": f"{settings.FRONTEND_URL.rstrip('/')}/signup?ref={current_user.referral_code}",
         "referral_count": current_user.referral_count or 0
     }
 

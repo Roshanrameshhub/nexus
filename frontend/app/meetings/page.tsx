@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useAuthStore } from '@/lib/store'
+import { getApiBaseUrl } from '@/lib/config/api'
 
 interface Meeting {
   id: string
@@ -44,7 +45,7 @@ export default function MeetingsPage() {
 
     setLoading(true)
     try {
-      const res = await fetch('http://localhost:8000/api/v1/meetings/', {
+      const res = await fetch(`${getApiBaseUrl()}/meetings/`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       console.log('Response status:', res.status)
@@ -77,7 +78,7 @@ export default function MeetingsPage() {
 
     setCreating(true)
     try {
-      const res = await fetch('http://localhost:8000/api/v1/meetings/create', {
+      const res = await fetch(`${getApiBaseUrl()}/meetings/create`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
