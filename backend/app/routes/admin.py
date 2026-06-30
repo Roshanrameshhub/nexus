@@ -3,6 +3,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from app.models.referral import Referral, ReferralStatus
 from fastapi.responses import FileResponse, Response
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +15,6 @@ from app.models.admin_console import (
     AdminAnnouncement,
     AdminAuditLog,
     ContentReport,
-    Referral,
     ReportStatus,
     VerificationRequest,
     VerificationStatus,
