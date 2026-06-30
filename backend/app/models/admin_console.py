@@ -124,20 +124,6 @@ class VerificationRequest(Base):
     reviewed_by = relationship("User", foreign_keys=[reviewed_by_id])
 
 
-class Referral(Base):
-    __tablename__ = "referrals"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    referrer_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    referred_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
-
-    referrer = relationship("User", foreign_keys=[referrer_id])
-    referred = relationship("User", foreign_keys=[referred_id])
-
-
 class ContentReport(Base):
     __tablename__ = "content_reports"
 
