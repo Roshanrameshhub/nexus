@@ -3,8 +3,8 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { 
-  Check, MessageSquare, Calendar, Globe, Users, FileText, 
-  Send, Sparkles, Briefcase, Heart, UserPlus, ShieldCheck, 
+  Check, MessageSquare, Calendar, Users, FileText, 
+  Send, Sparkles, Heart, UserPlus, ShieldCheck, 
   Flame, GraduationCap, Video, Bot, BookOpen, ArrowRight,
   TrendingUp, Award, Clock, Zap, Building2, School, Bug
 } from 'lucide-react'
@@ -15,6 +15,8 @@ import { AnnouncementsPanel } from '@/components/dashboard/announcements-panel'
 import { HighlightsSection } from '@/components/dashboard/highlights-section'
 import { PinnedPostsPanel } from '@/components/dashboard/pinned-posts-panel'
 import { OfficialPostsPanel } from '@/components/dashboard/official-posts-panel'
+import { TrendingOpportunitiesWidget } from '@/components/dashboard/trending-opportunities-widget'
+import { TrendingSkillsWidget } from '@/components/dashboard/trending-skills-widget'
 import { Button } from '@/components/ui/button'
 import { CardSkeleton } from '@/components/ui/loading-skeleton'
 import { ConnectButton } from '@/components/social/connect-button'
@@ -169,7 +171,6 @@ export default function DashboardPage() {
   const pinnedCount = dashboard?.pinned_posts?.length ?? 0
   const officialCount = dashboard?.official_posts?.length ?? 0
   const announcementsCount = dashboard?.announcements?.length ?? 0
-  const countryDiscovery = dashboard?.country_discovery ?? []
 
   useEffect(() => {
     setPinnedPosts(dashboard?.pinned_posts?.map(mapPostToFeedView) ?? [])
@@ -482,50 +483,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="glass-card p-6">
-              <div className="flex items-center justify-between gap-3 mb-6">
-                <div>
-                  <h2 className="text-xl font-semibold text-foreground">Trending Opportunities</h2>
-                  <p className="text-sm text-muted-foreground">Active opportunities matched to your skills</p>
-                </div>
-                <Button variant="secondary" size="sm" asChild>
-                  <Link href="/ecosystem">Browse Ecosystem</Link>
-                </Button>
-              </div>
-              <div className="space-y-4">
-                {(dashboard?.trending_opportunities ?? []).map((opp: any) => (
-                  <div key={opp.id} className="glass-card p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Briefcase className="w-4 h-4 text-primary shrink-0" />
-                          <p className="font-semibold text-foreground truncate">
-                            {opp.opportunity_details?.title || 'Opportunity'}
-                          </p>
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          {opp.opportunity_details?.organization} · {opp.author?.name}
-                        </p>
-                        <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{opp.content}</p>
-                      </div>
-                    </div>
-                    {opp.opportunity_details?.application_link && (
-                      <a
-                        href={opp.opportunity_details.application_link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-primary hover:underline mt-2 inline-block"
-                      >
-                        View application
-                      </a>
-                    )}
-                  </div>
-                ))}
-                {(dashboard?.trending_opportunities ?? []).length === 0 && (
-                  <p className="text-sm text-muted-foreground">No active opportunities right now.</p>
-                )}
-              </div>
-            </div>
+            <TrendingOpportunitiesWidget />
 
             <div className="glass-card p-6">
               <div className="flex items-center justify-between mb-4">
@@ -728,39 +686,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="glass-card p-6">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-2">
-                <Globe className="w-5 h-5 text-glow-lavender" />
-                <h2 className="text-lg font-semibold text-foreground">Country Discovery</h2>
-              </div>
-            </div>
-            <div className="space-y-3">
-              {dashboardQuery.isLoading && (
-                <p className="text-sm text-muted-foreground">Loading countries...</p>
-              )}
-              {!dashboardQuery.isLoading && countryDiscovery.length > 0 && (
-                countryDiscovery.map(({ country, count }) => (
-                  <Link
-                    key={country}
-                    href={`/network?country=${encodeURIComponent(country)}`}
-                    className="flex items-center justify-between p-2 rounded hover:bg-secondary/20 transition-colors"
-                  >
-                    <span className="text-sm font-medium">
-                      {country} <span className="text-muted-foreground">({count})</span>
-                    </span>
-                    <span className="text-xs text-primary font-medium">Explore &rarr;</span>
-                  </Link>
-                ))
-              )}
-              {!dashboardQuery.isLoading && !dashboardQuery.isError && countryDiscovery.length === 0 && (
-                <p className="text-sm text-muted-foreground">No country data yet. Users appear here once profiles include a location.</p>
-              )}
-              {dashboardQuery.isError && (
-                <p className="text-sm text-muted-foreground">Could not load country data. Refresh the page to try again.</p>
-              )}
-            </div>
-          </div>
+          <TrendingSkillsWidget />
         </section>
 
       </div>
