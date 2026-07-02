@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { Suspense, useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
@@ -25,6 +25,20 @@ import { useLikeDiscussion } from '@/lib/hooks/api/use-communities'
 import type { ApiCommunity, ApiDiscussion } from '@/lib/types/api'
 
 export default function CommunityPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[50vh] items-center justify-center text-sm text-muted-foreground">
+          Loading community...
+        </div>
+      }
+    >
+      <CommunityPageContent />
+    </Suspense>
+  )
+}
+
+function CommunityPageContent() {
   useProtectedRoute()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
